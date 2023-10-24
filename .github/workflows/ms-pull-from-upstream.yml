@@ -29,13 +29,16 @@ jobs:
           }
           Write-Host "OPEN_FORK_SYNC_PR=$pr_exists"
           echo "OPEN_FORK_SYNC_PR=$pr_exists" >> $GITHUB_OUTPUT
+  test:
+    needs: check-for-open-prs
+    run: echo "val of output var - ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}"
 
   sync:
-    runs-on: ubuntu-latest
-    
     needs: check-for-open-prs
 
     if: ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR == 'false' }}
+
+    runs-on: ubuntu-latest
 
     steps:
       - name: Run Fork-Sync
