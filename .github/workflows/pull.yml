@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: tgymnich/fork-sync@e2c7edd2fa70502b27eb4ff7644fe8709d1c71cb
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
           owner: tgauth
           base: test_latestw_all
           head: master
