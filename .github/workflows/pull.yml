@@ -7,15 +7,41 @@ on:
   pull_request: # for first run
 
 jobs:
-  sync:
 
+  check-for-open-prs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: tgymnich/fork-sync@e2c7edd2fa70502b27eb4ff7644fe8709d1c71cb
+      - name: Check for Open Fork-Sync PRs
+        shell: pwsh 
+        outputs:
+          OPEN_FORK_SYNC_PR: ${{ steps.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}
+        run: |
+          $repo = $env:GITHUB_REPOSITORY
+          Write-Host "repo: $repo"
+          $response = (curl https://api.github.com/repos/$repo/pulls?state=open) | Out-String | ConvertFrom-Json
+          $pr_exists = $false
+          ForEach ($title in $response.title) {
+            if ($title.contains('Fork Sync')) {
+              $pr_exists = $true
+            }
+          }
+          echo "OPEN_FORK_SYNC_PR=$pr_exists" >> $GITHUB_OUTPUT
+
+  sync:
+    runs-on: ubuntu-latest
+    
+    needs: check-for-open-prs
+
+    if: {{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR == 'false' }}
+
+    steps:
+      - name: Run Fork-Sync
+        uses: tgymnich/fork-sync@e2c7edd2fa70502b27eb4ff7644fe8709d1c71cb
         with:
           owner: openssh
           base: test_latestw_all
           head: master
           auto_approve: false
           ignore_fail: true
+    
