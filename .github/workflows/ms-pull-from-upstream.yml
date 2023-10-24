@@ -33,7 +33,7 @@ jobs:
     needs: check-for-open-prs
     runs-on: ubuntu-latest
     steps:
-      run: echo "val of output var - ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}"
+      - run: echo "val of output var - ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}"
 
   sync:
     needs: check-for-open-prs
