@@ -12,10 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
-      OPEN_FORK_SYNC_PR: ${{ steps.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}
+      OPEN_FORK_SYNC_PR: ${{ steps.open-pr-check.outputs.OPEN_FORK_SYNC_PR }}
 
     steps:
       - name: Check for Open Fork-Sync PRs
+        id: open-pr-check
         shell: pwsh 
         run: |
           $repo = $env:GITHUB_REPOSITORY
@@ -33,12 +34,12 @@ jobs:
     needs: check-for-open-prs
     runs-on: ubuntu-latest
     steps:
-      - run: echo "val of output var - ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}"
+      - run: echo "val of output var - ${{ needs.open-pr-check.outputs.OPEN_FORK_SYNC_PR }}"
 
   sync:
     needs: check-for-open-prs
 
-    if: ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR == 'false' }}
+    if: ${{ needs.open-pr-check.outputs.OPEN_FORK_SYNC_PR == 'false' }}
 
     runs-on: ubuntu-latest
 
