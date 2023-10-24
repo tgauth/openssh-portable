@@ -2,9 +2,8 @@ name: Sync Fork
 
 on:
   schedule:
-    - cron: '0 10 * * *' # every day
-  workflow_dispatch: # on button click
-  pull_request: # for first run
+    - cron: '0 10 * * 1' # run every Monday morning
+  workflow_dispatch: # on button click for debugging
 
 jobs:
 
@@ -45,4 +44,3 @@ jobs:
           head: master
           auto_approve: false
           ignore_fail: true
-    
