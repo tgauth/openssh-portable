@@ -15,6 +15,13 @@ jobs:
       output: ${{ steps.query.outputs.exists }}
 
     steps:
+      - name: Set color
+        id: color-selector
+        run: echo "SELECTED_COLOR=green" >> "$GITHUB_OUTPUT"
+      - name: Get color
+        env:
+          SELECTED_COLOR: ${{ steps.color-selector.outputs.SELECTED_COLOR }}
+        run: echo "The selected color is $SELECTED_COLOR"
       - name: Check for Open Fork-Sync PRs
         id: query
         shell: pwsh 
@@ -30,10 +37,12 @@ jobs:
           }
           Write-Host "exists='$exists'"
           if ($exists -eq $true) {
-            echo "exists='true'" >> "$GITHUB_OUTPUT"
+            Write-Host "settings exists to 0"
+            echo "exists=0" >> "$GITHUB_OUTPUT"
           } 
           else {
-            echo "exists='false'" >> "$GITHUB_OUTPUT"
+            Write-Host "settings exists to 1"
+            echo "exists=1" >> "$GITHUB_OUTPUT"
           }
       - env:
           TEST1: ${{ steps.query.outputs.exists }}
