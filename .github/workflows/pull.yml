@@ -11,11 +11,12 @@ jobs:
   check-for-open-prs:
     runs-on: ubuntu-latest
 
+    outputs:
+      OPEN_FORK_SYNC_PR: ${{ steps.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}
+
     steps:
       - name: Check for Open Fork-Sync PRs
         shell: pwsh 
-        outputs:
-          OPEN_FORK_SYNC_PR: ${{ steps.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}
         run: |
           $repo = $env:GITHUB_REPOSITORY
           Write-Host "repo: $repo"
