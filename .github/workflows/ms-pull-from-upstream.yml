@@ -8,11 +8,11 @@ on:
 
 jobs:
 
-  check:
+  sync:
     runs-on: ubuntu-latest
 
-    outputs:
-      output: ${{ steps.query.outputs.exists }}
+    # outputs:
+    #   output: ${{ steps.query.outputs.exists }}
 
     steps:
       - name: Check for Open Fork-Sync PRs
@@ -40,21 +40,8 @@ jobs:
       - env:
           TEST1: ${{ steps.query.outputs.exists }}
         run: echo "val of test1 - $TEST1"
-  test:
-    needs: check
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "val of output var - ${{ needs.check.outputs.output }}"
-
-  sync:
-    needs: check
-
-    if: ${{ needs.check.outputs.output }} == 'false'
-
-    runs-on: ubuntu-latest
-
-    steps:
       - name: Run Fork-Sync
+        if: steps.query.outputs.exists == 'false'
         uses: tgymnich/fork-sync@e2c7edd2fa70502b27eb4ff7644fe8709d1c71cb
         with:
           owner: openssh
@@ -62,3 +49,19 @@ jobs:
           head: master
           auto_approve: false
           ignore_fail: true
+      
+  # test:
+  #   needs: check
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - run: echo "val of output var - ${{ needs.check.outputs.output }}"
+
+  # sync:
+  #   needs: check
+
+  #   if: ${{ needs.check.outputs.output }} == 'false'
+
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+
