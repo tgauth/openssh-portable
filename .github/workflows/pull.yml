@@ -1,0 +1,18 @@
+name: Sync Fork
+
+on:
+  schedule:
+    - cron: '0 10 * * *' # every day
+  workflow_dispatch: # on button click
+
+jobs:
+  sync:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: tgymnich/fork-sync@e2c7edd2fa70502b27eb4ff7644fe8709d1c71cb
+        with:
+          owner: tgauth
+          base: test_latestw_all
+          head: master
