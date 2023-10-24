@@ -20,12 +20,13 @@ jobs:
           $repo = $env:GITHUB_REPOSITORY
           Write-Host "repo: $repo"
           $response = (curl https://api.github.com/repos/$repo/pulls?state=open) | Out-String | ConvertFrom-Json
-          $pr_exists = $false
+          $pr_exists = 'false'
           ForEach ($title in $response.title) {
             if ($title.contains('Fork Sync')) {
-              $pr_exists = $true
+              $pr_exists = 'true'
             }
           }
+          Write-Host "OPEN_FORK_SYNC_PR=$pr_exists"
           echo "OPEN_FORK_SYNC_PR=$pr_exists" >> $GITHUB_OUTPUT
 
   sync:
