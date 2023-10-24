@@ -18,3 +18,4 @@ jobs:
           owner: tgauth
           base: test_latestw_all
           head: master
+          ignore_fail: true
