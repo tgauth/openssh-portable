@@ -11,9 +11,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
 
-    # outputs:
-    #   output: ${{ steps.query.outputs.exists }}
-
     steps:
       - name: Check for Open Fork-Sync PRs
         id: query
@@ -30,16 +27,11 @@ jobs:
           }
           Write-Host "exists='$exists'"
           if ($exists -eq $true) {
-            Write-Host "settings exists to true"
             echo "exists=true" >> "$env:GITHUB_OUTPUT"
           } 
           else {
-            Write-Host "settings exists to false"
             echo "exists=false" >> "$env:GITHUB_OUTPUT"
           }
-      - env:
-          TEST1: ${{ steps.query.outputs.exists }}
-        run: echo "val of test1 - $TEST1"
       - name: Run Fork-Sync
         if: steps.query.outputs.exists == 'false'
         uses: tgymnich/fork-sync@e2c7edd2fa70502b27eb4ff7644fe8709d1c71cb
@@ -49,19 +41,5 @@ jobs:
           head: master
           auto_approve: false
           ignore_fail: true
-      
-  # test:
-  #   needs: check
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - run: echo "val of output var - ${{ needs.check.outputs.output }}"
 
-  # sync:
-  #   needs: check
-
-  #   if: ${{ needs.check.outputs.output }} == 'false'
-
-  #   runs-on: ubuntu-latest
-
-  #   steps:
 
