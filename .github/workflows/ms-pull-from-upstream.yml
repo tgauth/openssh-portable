@@ -22,22 +22,23 @@ jobs:
           $repo = $env:GITHUB_REPOSITORY
           Write-Host "repo: $repo"
           $response = (curl https://api.github.com/repos/$repo/pulls?state=open) | Out-String | ConvertFrom-Json
-          $pr_exists = 'false'
+          $pr_exists = $false
           ForEach ($title in $response.title) {
             if ($title.contains('Fork Sync')) {
-              $pr_exists = 'true'
+              $pr_exists = $true
             }
           }
           Write-Host "OPEN_FORK_SYNC_PR='$pr_exists'"
-          echo "OPEN_FORK_SYNC_PR='$pr_exists'" >> $GITHUB_OUTPUT
+          if ($pr_exists -eq $true) {
+            echo "OPEN_FORK_SYNC_PR='true'" >> $GITHUB_OUTPUT
+          } 
+          else {
+            echo "OPEN_FORK_SYNC_PR='false'" >> $GITHUB_OUTPUT
+          }
       - name: test 1
-        if: steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR == 'false'
-        run: echo "var set to false"
-      - name: test 2 
-        if: steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR == 'true'
-        run: echo "var set to true"
-      - name: test 3
-        run: echo "var set to $$ {{ steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR }}"
+        run: echo "var set to ${{ steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR }}"
+      - name: test 2
+        run: echo "var set to ${{ steps.github-query.outputs.OPEN_FORK_SYNC_PR }}"
   test:
     needs: check-for-existing-pr
     runs-on: ubuntu-latest
