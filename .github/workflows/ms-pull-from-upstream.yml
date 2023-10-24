@@ -8,47 +8,46 @@ on:
 
 jobs:
 
-  check-for-existing-pr:
+  check:
     runs-on: ubuntu-latest
 
     outputs:
-      OPEN_FORK_SYNC_PR: ${{ steps.github-query.outputs.OPEN_FORK_SYNC_PR }}
+      output: ${{ steps.query.outputs.exists }}
 
     steps:
       - name: Check for Open Fork-Sync PRs
-        id: github-query
+        id: query
         shell: pwsh 
         run: |
           $repo = $env:GITHUB_REPOSITORY
           Write-Host "repo: $repo"
           $response = (curl https://api.github.com/repos/$repo/pulls?state=open) | Out-String | ConvertFrom-Json
-          $pr_exists = $false
+          $exists = $false
           ForEach ($title in $response.title) {
             if ($title.contains('Fork Sync')) {
-              $pr_exists = $true
+              $exists = $true
             }
           }
-          Write-Host "OPEN_FORK_SYNC_PR='$pr_exists'"
-          if ($pr_exists -eq $true) {
-            echo "OPEN_FORK_SYNC_PR='true'" >> $GITHUB_OUTPUT
+          Write-Host "exists='$exists'"
+          if ($exists -eq $true) {
+            echo "exists='true'" >> "$GITHUB_OUTPUT"
           } 
           else {
-            echo "OPEN_FORK_SYNC_PR='false'" >> $GITHUB_OUTPUT
+            echo "exists='false'" >> "$GITHUB_OUTPUT"
           }
-      - name: test 1
-        run: echo "var set to ${{ steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR }}"
-      - name: test 2
-        run: echo "var set to ${{ steps.github-query.outputs.OPEN_FORK_SYNC_PR }}"
+      - env:
+          TEST1: ${{ steps.query.outputs.exists }}
+        run: echo "val of test1 - $TEST1"
   test:
-    needs: check-for-existing-pr
+    needs: check
     runs-on: ubuntu-latest
     steps:
-      - run: echo "val of output var - ${{ needs.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR }}"
+      - run: echo "val of output var - ${{ needs.check.outputs.output }}"
 
   sync:
-    needs: check-for-existing-pr
+    needs: check
 
-    if: ${{ needs.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR == 'false' }}
+    if: ${{ needs.check.outputs.output }} == 'false'
 
     runs-on: ubuntu-latest
 
