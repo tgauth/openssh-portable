@@ -31,7 +31,9 @@ jobs:
           echo "OPEN_FORK_SYNC_PR=$pr_exists" >> $GITHUB_OUTPUT
   test:
     needs: check-for-open-prs
-    run: echo "val of output var - ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}"
+    runs-on: ubuntu-latest
+    steps:
+      run: echo "val of output var - ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR }}"
 
   sync:
     needs: check-for-open-prs
