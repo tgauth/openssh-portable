@@ -30,6 +30,14 @@ jobs:
           }
           Write-Host "OPEN_FORK_SYNC_PR='$pr_exists'"
           echo "OPEN_FORK_SYNC_PR='$pr_exists'" >> $GITHUB_OUTPUT
+      - name: test 1
+        if: steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR == 'false'
+        run: echo "var set to false"
+      - name: test 2 
+        if: steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR == 'true'
+        run: echo "var set to true"
+      - name: test 3
+        run: echo "var set to $$ {{ steps.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR }}"
   test:
     needs: check-for-existing-pr
     runs-on: ubuntu-latest
