@@ -27,8 +27,8 @@ jobs:
               $pr_exists = 'true'
             }
           }
-          Write-Host "OPEN_FORK_SYNC_PR=$pr_exists"
-          echo "OPEN_FORK_SYNC_PR=$pr_exists" >> $GITHUB_OUTPUT
+          Write-Host "OPEN_FORK_SYNC_PR='$pr_exists'"
+          echo "OPEN_FORK_SYNC_PR='$pr_exists'" >> $GITHUB_OUTPUT
   test:
     needs: check-for-open-prs
     runs-on: ubuntu-latest
