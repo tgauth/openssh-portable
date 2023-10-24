@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: '0 10 * * 1' # run every Monday morning
   workflow_dispatch: # on button click for debugging
+  pull_request:
 
 jobs:
 
