@@ -8,15 +8,15 @@ on:
 
 jobs:
 
-  check-for-open-prs:
+  check-for-existing-pr:
     runs-on: ubuntu-latest
 
     outputs:
-      OPEN_FORK_SYNC_PR: ${{ steps.open-pr-check.outputs.OPEN_FORK_SYNC_PR }}
+      OPEN_FORK_SYNC_PR: ${{ steps.github-query.outputs.OPEN_FORK_SYNC_PR }}
 
     steps:
       - name: Check for Open Fork-Sync PRs
-        id: open-pr-check
+        id: github-query
         shell: pwsh 
         run: |
           $repo = $env:GITHUB_REPOSITORY
@@ -31,15 +31,15 @@ jobs:
           Write-Host "OPEN_FORK_SYNC_PR='$pr_exists'"
           echo "OPEN_FORK_SYNC_PR='$pr_exists'" >> $GITHUB_OUTPUT
   test:
-    needs: check-for-open-prs
+    needs: check-for-existing-pr
     runs-on: ubuntu-latest
     steps:
-      - run: echo "val of output var - ${{ needs.open-pr-check.outputs.OPEN_FORK_SYNC_PR }}"
+      - run: echo "val of output var - ${{ needs.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR }}"
 
   sync:
-    needs: check-for-open-prs
+    needs: check-for-existing-pr
 
-    if: ${{ needs.open-pr-check.outputs.OPEN_FORK_SYNC_PR == 'false' }}
+    if: ${{ needs.check-for-existing-pr.outputs.OPEN_FORK_SYNC_PR == 'false' }}
 
     runs-on: ubuntu-latest
 
