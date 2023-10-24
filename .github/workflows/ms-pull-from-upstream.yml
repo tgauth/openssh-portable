@@ -38,11 +38,11 @@ jobs:
           Write-Host "exists='$exists'"
           if ($exists -eq $true) {
             Write-Host "settings exists to 0"
-            echo "exists=0" >> "$GITHUB_OUTPUT"
+            echo "exists=green" >> "$GITHUB_OUTPUT"
           } 
           else {
             Write-Host "settings exists to 1"
-            echo "exists=1" >> "$GITHUB_OUTPUT"
+            echo "exists=blue" >> "$GITHUB_OUTPUT"
           }
       - env:
           TEST1: ${{ steps.query.outputs.exists }}
