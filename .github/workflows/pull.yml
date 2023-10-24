@@ -34,7 +34,7 @@ jobs:
     
     needs: check-for-open-prs
 
-    if: {{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR == 'false' }}
+    if: ${{ needs.check-for-open-prs.outputs.OPEN_FORK_SYNC_PR == 'false' }}
 
     steps:
       - name: Run Fork-Sync
