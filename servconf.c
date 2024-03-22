@@ -11,6 +11,9 @@
  */
 
 #include "includes.h"
+#ifdef WINDOWS
+#include <LM.h>
+#endif // WINDOWS
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -1827,6 +1830,34 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 		uintptr = &options->num_allow_users;
  parse_allowdenyusers:
 		while ((arg = argv_next(&ac, &av)) != NULL) {
+#ifdef WINDOWS
+			// it can be a SID string; if it is - use localized name for that SID
+			PSID Sid = NULL;
+			char* utf8_user_name = NULL;
+			wchar_t* arg_utf16 = utf8_to_utf16(arg);
+			if (ConvertStringSidToSidW(arg_utf16, &Sid) != 0) {
+				WCHAR user_name[UNLEN + 1];
+				DWORD user_name_length = UNLEN + 1;
+				WCHAR domain_name[DNLEN + 1] = L"";
+				DWORD domain_name_size = DNLEN + 1;
+				SID_NAME_USE account_type = 0;
+				if (LookupAccountSidW(NULL, Sid, user_name, &user_name_length,
+					domain_name, &domain_name_size, &account_type) != 0) {
+					utf8_user_name = utf16_to_utf8(user_name);
+					debug3_f("'%s' is translated to '%s'", arg, utf8_user_name);
+					arg = utf8_user_name;
+				} else {
+					debug3_f("LookupAccountSid failed for '%s'", arg);
+				}
+
+				if (Sid)
+					LocalFree(Sid);
+			}
+			else
+			{
+				debug3_f("'%s' not recognized as SID", arg);
+			}
+#endif // WINDOWS
 			if (*arg == '\0' ||
 			    match_user(NULL, NULL, NULL, arg) == -1)
 				fatal("%s line %d: invalid %s pattern: \"%s\"",
@@ -1835,6 +1866,12 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 				continue;
 			opt_array_append(filename, linenum, keyword,
 			    chararrayptr, uintptr, arg);
+#ifdef WINDOWS
+			if (utf8_user_name)
+				free(utf8_user_name);
+			if (arg_utf16)
+				free(arg_utf16);
+#endif // WINDOWS
 		}
 		break;
 
@@ -1851,10 +1888,44 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 			if (*arg == '\0')
 				fatal("%s line %d: empty %s pattern",
 				    filename, linenum, keyword);
+#ifdef WINDOWS
+			// it can be a SID string; if it is - use localized name for that SID
+			PSID Sid = NULL;
+			char* utf8_group_name = NULL;
+			wchar_t* arg_utf16 = utf8_to_utf16(arg);
+			if (ConvertStringSidToSidW(arg_utf16, &Sid) != 0) {
+				WCHAR group_name[UNLEN + 1];
+				DWORD group_name_length = UNLEN + 1;
+				WCHAR domain_name[DNLEN + 1] = L"";
+				DWORD domain_name_size = DNLEN + 1;
+				SID_NAME_USE account_type = 0;
+				if (LookupAccountSidW(NULL, Sid, group_name, &group_name_length,
+					domain_name, &domain_name_size, &account_type) != 0) {
+					utf8_group_name = utf16_to_utf8(group_name);
+					debug3_f("'%s' is translated to '%s'", arg, utf8_group_name);
+					arg = utf8_group_name;
+				} else {
+					debug3_f("LookupAccountSid failed for '%s'", arg);
+				}
+
+				if (Sid)
+					LocalFree(Sid);
+			}
+			else
+			{
+				debug3_f("'%s' not recognized as SID", arg);
+			}
+#endif // WINDOWS
 			if (!*activep)
 				continue;
 			opt_array_append(filename, linenum, keyword,
 			    chararrayptr, uintptr, arg);
+#ifdef WINDOWS
+			if (utf8_group_name)
+				free(utf8_group_name);
+			if (arg_utf16)
+				free(arg_utf16);
+#endif // WINDOWS
 		}
 		break;
 
