@@ -13,6 +13,7 @@
 #include "includes.h"
 #ifdef WINDOWS
 #include <LM.h>
+#include <Sddl.h>
 #endif // WINDOWS
 
 #include <sys/types.h>
