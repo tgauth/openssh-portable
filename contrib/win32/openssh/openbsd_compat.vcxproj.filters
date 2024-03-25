@@ -75,9 +75,6 @@
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\dirname.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\freezero.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\explicit_bzero.c">
       <Filter>Source Files</Filter>
     </ClCompile>

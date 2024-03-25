@@ -58,7 +58,6 @@
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\bsd-waitpid.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\daemon.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\dirname.c" />
-    <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\freezero.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\explicit_bzero.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\fake-rfc2553.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)openbsd-compat\fmt_scaled.c" />
