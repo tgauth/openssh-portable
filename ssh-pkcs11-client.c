@@ -904,7 +904,11 @@ pkcs11_add_provider(char *name, char *pin, struct sshkey ***keysp,
 	struct sshkey *k;
 	int r, type;
 	u_char *blob;
-	char *label;
+#ifdef WINDOWS
+	char *label = NULL;
+#else
+	char* label;
+#endif /* WINDOWS*/
 	size_t blen;
 	u_int nkeys, i;
 	struct sshbuf *msg;

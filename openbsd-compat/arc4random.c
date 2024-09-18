@@ -88,12 +88,16 @@ static struct _rsx {
 
 static inline int _rs_allocate(struct _rs **, struct _rsx **);
 static inline void _rs_forkdetect(void);
+#ifdef WINDOWS
+#include "arc4random_win.h"
+#else
 #include "arc4random.h"
+#endif /* WINDOWS*/
 
 static inline void _rs_rekey(u_char *dat, size_t datlen);
 
 static inline void
-_rs_init(u_char *buf, size_t n)
+_rs_init(u_char* buf, size_t n)
 {
 	if (n < KEYSZ + IVSZ)
 		return;
