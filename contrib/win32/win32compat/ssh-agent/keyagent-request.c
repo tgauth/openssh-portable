@@ -679,9 +679,8 @@ int process_add_smartcard_key(struct sshbuf* request, struct sshbuf* response, s
 
 	to_lower_case(provider);
 	verbose("provider realpath: \"%.100s\"", provider);
-	to_lower_case(allowed_providers);
 	verbose("allowed provider paths: \"%.100s\"", allowed_providers);
-	if (match_pattern_list(provider, allowed_providers, 0) != 1) {
+	if (match_pattern_list(provider, allowed_providers, 1) != 1) {
 		verbose("refusing PKCS#11 add of \"%.100s\": "
 			"provider not allowed", provider);
 		goto done;
