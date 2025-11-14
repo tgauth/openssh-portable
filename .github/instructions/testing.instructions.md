@@ -14,15 +14,25 @@ This document provides comprehensive testing procedures for validating OpenSSH-P
 # Verify Windows version compatibility
 Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
 
-# Check if running as Administrator
+# Check if running as Administrator - REQUIRED for service installation
 if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
 {
-    Write-Warning "Administrative privileges required for service installation"
+    Write-Error "Administrative privileges are REQUIRED for service installation and testing."
+    Write-Host "Please restart PowerShell or VS Code as Administrator and try again." -ForegroundColor Yellow
+    Write-Host "To elevate: Right-click PowerShell/VS Code -> 'Run as Administrator'" -ForegroundColor Yellow
+    exit 1
 }
+
+Write-Host "✓ Running with Administrator privileges" -ForegroundColor Green
 
 # Verify build artifacts exist
 $buildPath = ".\contrib\win32\openssh\x64\Release"
-Test-Path "$buildPath\sshd.exe" -and (Test-Path "$buildPath\ssh.exe")
+if (-not (Test-Path "$buildPath\sshd.exe") -or -not (Test-Path "$buildPath\ssh.exe")) {
+    Write-Error "Build artifacts not found. Please build the project first."
+    exit 1
+}
+
+Write-Host "✓ Build artifacts verified" -ForegroundColor Green
 ```
 
 ### Service Installation and Configuration
