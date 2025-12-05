@@ -276,22 +276,6 @@ try {
         # Note: Windows SSH doesn't support stdin password directly, so we rely on interactive prompt handling
         # For automated testing, we'll use SSH with key-based auth disabled and capture output
 
-        $sshArgs = @(
-            "-o", "StrictHostKeyChecking=no"
-            "-o", "UserKnownHostsFile=NUL"
-            "-o", "PubkeyAuthentication=no"
-            "-o", "PasswordAuthentication=yes"
-            "-o", "BatchMode=yes"  # Fail rather than prompt interactively
-            "-o", "ConnectTimeout=10"
-            "$testUsername@$hostname"
-            $testCommand
-        )
-
-        # Attempt connection
-        # Note: BatchMode with password auth will fail, so we need a different approach
-        # We'll use expect-style input handling via PowerShell
-
-        # Alternative: Use a process with input redirection
         $processInfo = New-Object System.Diagnostics.ProcessStartInfo
         $processInfo.FileName = $sshClientPath
         $processInfo.Arguments = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o PubkeyAuthentication=no -o PasswordAuthentication=yes $testUsername@$hostname `"$testCommand`""
