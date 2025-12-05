@@ -26,7 +26,49 @@ git --version
 
 ## Build Process
 
-### Step 1: Environment Setup
+### Using MCP Build Tools (Recommended)
+
+The repository includes MCP tools that automate the build, verification, and error analysis process.
+
+#### Option 1: Build & Verify (Recommended)
+```pwsh
+# Complete build and verification in one step
+.\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
+
+# Clean build
+.\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64 -Clean
+
+# Debug build
+.\.github\tools\Build-OpenSSH.ps1 -Configuration Debug -Architecture x64
+```
+
+**Output includes:**
+- Build success/failure status
+- All 14 expected artifacts verification
+- Parsed compilation errors with file/line/code/message
+- Build warnings summary
+- Build log location
+
+#### Option 2: Build Only
+```pwsh
+# Incremental build
+.\.github\tools\Start-OpenSSHBuild.ps1 -Configuration Release -Architecture x64
+
+# Clean build
+.\.github\tools\Start-OpenSSHBuild.ps1 -Configuration Release -Architecture x64 -Clean
+```
+
+#### Option 3: Test Existing Build
+```pwsh
+# Test artifacts and parse errors from previous build
+.\.github\tools\Test-OpenSSHBuild.ps1 -Configuration Release -Architecture x64
+```
+
+### Using PowerShell Module Directly (Alternative)
+
+If you need direct access to the build module functions:
+
+#### Step 1: Environment Setup
 ```pwsh
 # Navigate to repository root
 cd <repository-root>
@@ -38,9 +80,9 @@ Import-Module .\contrib\win32\openssh\OpenSSHBuildHelper.psm1 -Force
 Get-Command -Module OpenSSHBuildHelper
 ```
 
-### Step 2: Initial Build
+#### Step 2: Initial Build
 ```pwsh
-Start-OpenSSHBuild -Configuration Release -NativeHostArch x64 -Clean
+Start-OpenSSHBuild -Configuration Release -NativeHostArch x64
 ```
 
 ## Compilation Error Resolution
@@ -116,17 +158,20 @@ fatal error C1083: Cannot open source file: 'newfile.c'
 ### Step-by-Step Error Resolution
 
 #### AI Agent Workflow:
-1. **Attempt initial build**
-2. **Capture and analyze errors**
-3. **Categorize error types**
-4. **Apply appropriate resolution strategy**
-5. **Rebuild and verify**
+1. **Attempt initial build using MCP tool**
+   ```pwsh
+   .\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
+   ```
+2. **Review structured error output** from Build-OpenSSH tool
+3. **Categorize error types** (preprocessor, Windows compatibility, build system)
+4. **Apply appropriate resolution strategy** (see error categories above)
+5. **Rebuild and verify** using Build-OpenSSH tool again
 6. **Commit fixes with detailed message**
 
-#### Error Analysis Commands:
+#### Manual Error Analysis Commands (if needed):
 ```pwsh
-# Build with verbose output
-Start-OpenSSHBuild -Configuration Release -NativeHostArch x64 -Verbose
+# Parse errors manually from log file
+.\.github\tools\Test-OpenSSHBuild.ps1 -Configuration Release -Architecture x64
 
 # Direct MSBuild with detailed logging
 & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" .\contrib\win32\openssh\Win32-OpenSSH.sln /p:Configuration=Release /p:Platform=x64 /v:detailed
@@ -189,7 +234,28 @@ contrib\win32\openssh\
 
 ## Validation and Testing
 
-### Build Verification
+### Build Verification Using MCP Tools
+```pwsh
+# Recommended: Use Build-OpenSSH which includes testing
+.\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
+
+# Or test an existing build
+.\.github\tools\Test-OpenSSHBuild.ps1 -Configuration Release -Architecture x64
+```
+
+**Expected Output:**
+- Success/failure status
+- 14 of 14 artifacts found
+- Parsed errors and warnings
+- Build log location
+
+**Expected Artifacts (14 executables):**
+- ssh.exe, sshd.exe, sshd-auth.exe, sshd-session.exe
+- ssh-agent.exe, ssh-add.exe, ssh-keygen.exe, ssh-keyscan.exe
+- scp.exe, sftp.exe, sftp-server.exe
+- ssh-pkcs11-helper.exe, ssh-shellhost.exe, ssh-sk-helper.exe
+
+### Manual Verification (Alternative)
 ```pwsh
 # Check that all expected binaries were built
 $buildPath = ".\contrib\win32\openssh\x64\Release"

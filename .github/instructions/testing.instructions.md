@@ -7,7 +7,71 @@ applyTo: "**/*"
 ## Overview
 This document provides comprehensive testing procedures for validating OpenSSH-Portable merges on Windows. Testing should be performed after successful compilation to ensure functionality is preserved.
 
-## Test Environment Setup
+## Automated Testing with MCP Tools (Recommended)
+
+### Using Test-OpenSSHFunctionality Tool
+
+The repository includes an MCP tool that automates end-to-end functional testing of OpenSSH on Windows.
+
+```pwsh
+# Run automated functional test (requires Administrator privileges)
+.\.github\tools\Test-OpenSSHFunctionality.ps1
+
+# Test with specific configuration
+.\.github\tools\Test-OpenSSHFunctionality.ps1 -Configuration Debug -Architecture x64
+
+# Skip firewall configuration if rules already exist
+.\.github\tools\Test-OpenSSHFunctionality.ps1 -SkipFirewall
+```
+
+**What the tool does:**
+1. Verifies Administrator privileges
+2. Creates a temporary test user with random password
+3. Installs and starts the SSH service
+4. Configures Windows Firewall (unless -SkipFirewall is used)
+5. Tests SSH connection with password authentication
+6. Executes "echo hello world" command via SSH
+7. Cleans up all resources (user, service, firewall rule)
+
+**Expected output on success:**
+```
+=== OpenSSH Functionality Test ===
+[1/6] Checking Administrator privileges...
+✓ Running with Administrator privileges
+[2/6] Creating temporary test user...
+✓ Created test user: openssh_test_1234
+[3/6] Installing SSH service...
+✓ SSH service installed successfully
+[4/6] Starting SSH service...
+✓ SSH service started successfully
+[5/6] Configuring Windows Firewall...
+✓ Firewall rule created
+[6/6] Testing SSH connection...
+✓ SSH connection successful
+  Command output: hello world
+
+=== Cleanup ===
+✓ SSH service uninstalled
+✓ Firewall rule removed
+✓ Test user removed
+
+=== Test Summary ===
+Status: PASSED
+```
+
+**The tool returns a structured result object with:**
+- `Success`: Boolean indicating overall test success
+- `ServiceInstalled`: Whether service installation succeeded
+- `ServiceStarted`: Whether service started successfully
+- `ConnectionSuccessful`: Whether SSH connection test passed
+- `CommandOutput`: Output from the test command
+- `TestUser`: Name of the temporary test user created
+- `Errors`: Array of any errors encountered
+- `Message`: Summary message
+
+## Manual Testing Procedures
+
+If you need to perform manual testing or troubleshoot specific issues, follow these procedures:
 
 ### Prerequisites Check
 ```pwsh
@@ -34,6 +98,8 @@ if (-not (Test-Path "$buildPath\sshd.exe") -or -not (Test-Path "$buildPath\ssh.e
 
 Write-Host "✓ Build artifacts verified" -ForegroundColor Green
 ```
+
+### Test Environment Setup
 
 ### Service Installation and Configuration
 
@@ -131,28 +197,52 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 ## Success Criteria
 
 **Testing is successful when:**
-- [ ] All expected executables are present after build
+- [ ] All expected executables are present after build (verified by Test-OpenSSHBuild.ps1)
 - [ ] SSH service installs and starts without errors
-- [ ] Basic SSH connection to localhost succeeds
+- [ ] SSH connection with password authentication succeeds
+- [ ] Test command executes successfully via SSH connection
+- [ ] All resources cleaned up properly after testing
 
 
 ## AI Agent Guidelines
 
-1. **Run tests incrementally** during the merge process, not just at the end
-2. **Document any test failures** and their resolutions in commit messages
-3. **Pay special attention to Windows-specific functionality** that might be affected by upstream changes
-4. **Always clean up test artifacts** and services after testing
-5. **Report any new functionality** that needs additional testing procedures
+1. **Use automated testing tools** whenever possible - prefer Test-OpenSSHFunctionality.ps1 over manual procedures
+2. **Run tests incrementally** during the merge process, not just at the end
+3. **Document any test failures** and their resolutions in commit messages
+4. **Pay special attention to Windows-specific functionality** that might be affected by upstream changes
+5. **Always verify cleanup** - ensure test users, services, and firewall rules are removed
+6. **Report any new functionality** that needs additional testing procedures
 
-## Test Environment Cleanup
+### Recommended Testing Workflow for AI Agents
+
+1. **After successful build**, run the automated functionality test:
+   ```pwsh
+   .\.github\tools\Test-OpenSSHFunctionality.ps1
+   ```
+
+2. **If test passes**, the merge is validated for basic SSH functionality
+
+3. **If test fails**, use manual procedures and debug mode to diagnose issues
+
+4. **Document results** in commit message or merge documentation
+
+## Manual Test Environment Cleanup
+
+If you ran manual tests instead of using the automated tool:
 
 ```pwsh
 # Clean up test environment
 Stop-Service sshd -ErrorAction SilentlyContinue
+cd .\contrib\win32\openssh\x64\Release
 .\uninstall-sshd.ps1
 
 # Remove firewall rule
 Remove-NetFirewallRule -DisplayName "SSH Server (sshd)" -ErrorAction SilentlyContinue
 
+# Remove any test users manually created
+Remove-LocalUser -Name "test_username" -ErrorAction SilentlyContinue
+
 Write-Host "Test environment cleaned up"
 ```
+
+**Note:** The automated Test-OpenSSHFunctionality.ps1 tool handles all cleanup automatically, even on failure.
