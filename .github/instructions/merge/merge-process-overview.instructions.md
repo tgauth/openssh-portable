@@ -102,28 +102,31 @@ The process consists of several interconnected phases:
    # follow the below steps to completion until the upstream's HEAD has been successfully merged
    ```
 
-5. **Execute chunked merge:**
+5. **Execute chunked merge (commit-by-commit within the chunk):**
+
+   **Important:** Even though commits are *grouped* into chunks for planning/CI boundaries, **cherry-pick each commit individually** within the chunk and **build after each commit**. This catches Windows-specific build breaks early and makes it clear which upstream commit introduced a regression.
+
    ```pwsh
-   # Cherry-pick the batch of commits instead of full merge
-   foreach ($commits in $commitBatches) {
-       $startCommit = $commits[0]
-       $endCommit = $commits[1]
+   # For each chunk (start..end), enumerate and cherry-pick commits one at a time.
+   # Then build after EACH commit.
+   #
+   # Example for a single chunk:
+   $chunkStart = $result.StartCommitFull
+   $chunkEnd   = $result.EndCommitFull
+   $commits = git rev-list --reverse "$chunkStart^..$chunkEnd"
 
+   foreach ($commit in $commits) {
        Write-Host "Cherry-picking commit: $commit"
+       git cherry-pick $commit
 
-       try {
-           git cherry-pick $start_commit..$end_commit
-       }
-       catch {
-           Write-Host "Conflict detected - resolving..."
-           # Continue to conflict resolution step
-           break
-       }
+       # Build after every commit so we can attribute failures precisely.
+       # Prefer the MCP build helper if available; otherwise use Start-OpenSSHBuild.
+       .\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
    }
    ```
 
 7. **Resolve merge conflicts (per commit):**
-   **📖 Detailed Instructions** ([Merge Instructions](./merge.instructions.md)):
+    **📖 Detailed Instructions** ([Merge Details](./merge-details.instructions.md)):
 
    - Resolve conflicts for the current commit only
    - Use three-way comparison tools
@@ -255,13 +258,12 @@ The process consists of several interconnected phases:
 
 AI agents should utilize these additional resources:
 
-- **[Checklist](./checklist.instructions.md)** - Comprehensive step-by-step checklist
 - **[Reference Analysis](./research.instructions.md)** - Intelligence gathering protocols
-- **[Merge Instructions](./merge.instructions.md)** - Comprehensive merge process, conflict resolution, and automation algorithms
+- **[Merge Details](./merge-details.instructions.md)** - Comprehensive merge process, conflict resolution, and automation algorithms
 - **[Testing Instructions](../testing.instructions.md)** - Detailed validation procedures
 
 **For AI Agents:**
-1. **Start with the checklist** - Use the AI agent checklist to track progress
+1. **Start with this overview** - Follow the phases and track progress commit-by-commit
 2. **Follow decision trees** - Refer to AI agent instructions for algorithmic guidance
 3. **Document everything** - Maintain detailed commit messages and resolution rationale
 4. **Use automated testing** - Leverage provided test scripts for validation

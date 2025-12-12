@@ -2,11 +2,7 @@
 name: merge-upstream
 description: Assist with merging upstream OpenSSH commits into the PowerShell fork.
 tools:
-  - mcp_pwsh-mcp-server_Get_CommitGroups
-  - mcp_pwsh-mcp-server_Build_OpenSSH
-  - mcp_pwsh-mcp-server_Start_OpenSSHBuild
-  - mcp_pwsh-mcp-server_Test_OpenSSHBuild
-  - mcp_pwsh-mcp-server_Test_OpenSSHFunctionality
+  ['vscode', 'execute', 'read', 'pwsh-mcp-server/*', 'agent', 'edit', 'search', 'web', 'todo']
 ---
 # OpenSSH Upstream Merge Agent
 
