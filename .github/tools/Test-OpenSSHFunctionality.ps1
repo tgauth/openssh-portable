@@ -27,6 +27,10 @@
     Skip Windows Firewall configuration. Use this if firewall rules already exist
     or if testing on a system without firewall enabled.
 
+.PARAMETER NoCleanup
+    Skip cleanup of created resources (test user, firewall rule, temp files).
+    Useful when debugging failures.
+
 .EXAMPLE
     .\Test-OpenSSHFunctionality.ps1
     Tests using default Release x64 build with firewall configuration
@@ -55,7 +59,10 @@ param(
     [string]$Architecture = 'x64',
 
     [Parameter()]
-    [switch]$SkipFirewall
+    [switch]$SkipFirewall,
+
+    [Parameter()]
+    [switch]$NoCleanup
 )
 
 # Helper function to generate a random password
@@ -131,7 +138,8 @@ try {
     # Step 2: Locate build artifacts and scripts
     $scriptRoot = Split-Path -Parent $PSCommandPath
     $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
-    $buildPath = Join-Path $repoRoot "contrib\win32\openssh\$Architecture\$Configuration"
+    $buildPath = Join-Path $repoRoot "bin\$Architecture\$Configuration"
+    $askPassExe = Join-Path $repoRoot "regress\pesterTests\utilities\askpass_util\askpass_util.exe"
 
     # Verify build artifacts exist
     $sshdExe = Join-Path $buildPath "sshd.exe"
@@ -159,9 +167,16 @@ try {
     $securePassword = ConvertTo-SecureString $testPassword -AsPlainText -Force
 
     try {
+        Import-Module Microsoft.PowerShell.LocalAccounts -UseWindowsPowerShell
         New-LocalUser -Name $testUsername -Password $securePassword -Description "Temporary user for OpenSSH testing" -ErrorAction Stop | Out-Null
         $testUser = $testUsername
         $result.TestUser = $testUsername
+        $env:ASKPASS_PASSWORD = $testPassword
+        $env:SSH_ASKPASS_REQUIRE = "force"
+        if (-not (Test-Path $askPassExe)) {
+            throw "SSH_ASKPASS helper not found at '$askPassExe'"
+        }
+        $env:SSH_ASKPASS = $askPassExe
         Write-Host "✓ Created test user: $testUsername" -ForegroundColor Green
     }
     catch {
@@ -292,10 +307,6 @@ try {
 
         $process.Start() | Out-Null
 
-        # Write password to stdin
-        $process.StandardInput.WriteLine($testPassword)
-        $process.StandardInput.Close()
-
         # Wait for completion (with timeout)
         $completed = $process.WaitForExit(15000)  # 15 second timeout
 
@@ -345,60 +356,74 @@ finally {
     # Cleanup: Always attempt to clean up resources
     Write-Host "`n=== Cleanup ===" -ForegroundColor Cyan
 
-    # Stop and uninstall SSH service
-    if ($serviceWasInstalled) {
-        Write-Host "Stopping SSH service..." -ForegroundColor Gray
-        try {
-            Stop-Service sshd -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 1
+    if ($NoCleanup) {
+        Write-Host "⚠ NoCleanup specified - leaving resources in place for investigation." -ForegroundColor Yellow
+        if ($testUser) {
+            Write-Host "  Test user: $testUser" -ForegroundColor Yellow
         }
-        catch {
-            Write-Host "⚠ Warning: Failed to stop service: $_" -ForegroundColor Yellow
+        if ($serviceWasInstalled) {
+            Write-Host "  SSH service may still be installed/running (sshd)." -ForegroundColor Yellow
         }
-
-        Write-Host "Uninstalling SSH service..." -ForegroundColor Gray
-        $uninstallScript = Join-Path $buildPath "uninstall-sshd.ps1"
-        if (Test-Path $uninstallScript) {
-            Push-Location $buildPath
+        if ($firewallRuleCreated) {
+            Write-Host "  Firewall rule: SSH Server (sshd) - Test" -ForegroundColor Yellow
+        }
+        Write-Host "";
+    } else {
+        # Stop and uninstall SSH service
+        if ($serviceWasInstalled) {
+            Write-Host "Stopping SSH service..." -ForegroundColor Gray
             try {
-                & $uninstallScript 2>&1 | Out-Null
-                Write-Host "✓ SSH service uninstalled" -ForegroundColor Green
+                Stop-Service sshd -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
             }
             catch {
-                Write-Host "⚠ Warning: Failed to uninstall service: $_" -ForegroundColor Yellow
+                Write-Host "⚠ Warning: Failed to stop service: $_" -ForegroundColor Yellow
             }
-            finally {
-                Pop-Location
+
+            Write-Host "Uninstalling SSH service..." -ForegroundColor Gray
+            $uninstallScript = Join-Path $buildPath "uninstall-sshd.ps1"
+            if (Test-Path $uninstallScript) {
+                Push-Location $buildPath
+                try {
+                    & $uninstallScript 2>&1 | Out-Null
+                    Write-Host "✓ SSH service uninstalled" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "⚠ Warning: Failed to uninstall service: $_" -ForegroundColor Yellow
+                }
+                finally {
+                    Pop-Location
+                }
             }
         }
-    }
 
-    # Remove firewall rule
-    if ($firewallRuleCreated) {
-        Write-Host "Removing firewall rule..." -ForegroundColor Gray
-        try {
-            Remove-NetFirewallRule -DisplayName "SSH Server (sshd) - Test" -ErrorAction SilentlyContinue
-            Write-Host "✓ Firewall rule removed" -ForegroundColor Green
+        # Remove firewall rule
+        if ($firewallRuleCreated) {
+            Write-Host "Removing firewall rule..." -ForegroundColor Gray
+            try {
+                Remove-NetFirewallRule -DisplayName "SSH Server (sshd) - Test" -ErrorAction SilentlyContinue
+                Write-Host "✓ Firewall rule removed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "⚠ Warning: Failed to remove firewall rule: $_" -ForegroundColor Yellow
+            }
         }
-        catch {
-            Write-Host "⚠ Warning: Failed to remove firewall rule: $_" -ForegroundColor Yellow
-        }
-    }
 
-    # Remove test user
-    if ($testUser) {
-        Write-Host "Removing test user..." -ForegroundColor Gray
-        try {
-            Remove-LocalUser -Name $testUser -ErrorAction Stop
-            Write-Host "✓ Test user removed" -ForegroundColor Green
+        # Remove test user
+        if ($testUser) {
+            Write-Host "Removing test user..." -ForegroundColor Gray
+            try {
+                Remove-LocalUser -Name $testUser -ErrorAction Stop
+                Write-Host "✓ Test user removed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "⚠ Warning: Failed to remove test user: $_" -ForegroundColor Yellow
+                Write-Host "  You may need to manually remove user: $testUser" -ForegroundColor Yellow
+            }
         }
-        catch {
-            Write-Host "⚠ Warning: Failed to remove test user: $_" -ForegroundColor Yellow
-            Write-Host "  You may need to manually remove user: $testUser" -ForegroundColor Yellow
-        }
-    }
 
-    Write-Host ""
+        Write-Host ""
+    }
 }
 
 # Output summary
