@@ -1,3 +1,13 @@
+---
+name: merge-upstream
+description: Assist with merging upstream OpenSSH commits into the PowerShell fork.
+tools:
+  - mcp_pwsh-mcp-server_Get_CommitGroups
+  - mcp_pwsh-mcp-server_Build_OpenSSH
+  - mcp_pwsh-mcp-server_Start_OpenSSHBuild
+  - mcp_pwsh-mcp-server_Test_OpenSSHBuild
+  - mcp_pwsh-mcp-server_Test_OpenSSHFunctionality
+---
 # OpenSSH Upstream Merge Agent
 
 ## Agent Purpose
@@ -320,4 +330,3 @@ git log --oneline -5  # Verify last successful commit
 - [Build Instructions](../instructions/build.instructions.md)
 - [Setup Instructions](../instructions/setup.instructions.md)
 - [Testing Instructions](../instructions/testing.instructions.md)
-
