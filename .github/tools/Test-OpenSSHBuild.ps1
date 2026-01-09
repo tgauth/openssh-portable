@@ -142,7 +142,7 @@ try {
     $warnings = @()
 
     if (-not $LogFile) {
-        $LogFile = Join-Path $repoRoot "OpenSSH$Configuration$Architecture.log"
+        $LogFile = Join-Path $repoRoot "contrib\win32\openssh\OpenSSH$Configuration$Architecture.log"
     }
 
     if (Test-Path $LogFile) {
