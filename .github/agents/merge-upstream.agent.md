@@ -82,17 +82,35 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 **Objective:** Verify environment and establish baseline
 
 **Steps:**
-1. Verify Git, PowerShell, Visual Studio are available
-2. Confirm repository remotes are configured
-3. Identify upstream version/tag to merge
-4. Create merge branch: `merge-v<VERSION>-<YYYYMMDD>`
-5. Perform baseline build from current branch
-6. Use Get-CommitGroups with `-FirstChunkOnly -GroupByCIPresence` to get first commit batch
+1. **Run prerequisite verification via MCP tool:**
+   - **MCP Tool Name**: `mcp_test-server_Test_MergePrerequisites`
+   - **Parameters**:
+     - `TargetVersion` (string, required): Upstream version/tag to merge (e.g., "V_10_0_P2")
+     - `SkipBaselineBuild` (boolean, optional): Skip baseline build check (default: false)
+   
+   This single tool verifies:
+   - Git, PowerShell, Visual Studio are available
+   - Repository remotes are configured (origin, upstream, upstream-pwsh)
+   - Target version/tag exists in upstream
+   - Working directory is clean (no uncommitted changes)
+   - Baseline build passes from current branch
+   - First commit batch is identified
+
+2. **Proceed only if tool reports success:**
+   - Tool must return `Success: true`
+   - Tool must display "ALL PREREQUISITES MET"
+   - If tool fails, fix reported issues before continuing
+
+3. **Create merge branch:**
+   ```pwsh
+   git checkout -b merge-v<VERSION>-<YYYYMMDD>
+   # Example: git checkout -b merge-v10.0P2-20260109
+   ```
 
 **Success Criteria:**
-- Base branch builds successfully
-- First commit group identified (ending with any CI run)
+- Prerequisite tool reports all checks passed
 - Merge branch created
+- Ready to begin Phase 2 (cherry-picking first batch)
 
 ### Phase 2: Incremental Merge
 **Objective:** Cherry-pick commits in a single batch ending with a CI run

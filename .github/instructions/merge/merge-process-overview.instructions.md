@@ -47,11 +47,23 @@ The process consists of several interconnected phases:
 ## Merge Phase
 
 ### Initial Preparation
-1. **Verify baseline build**
-   **(📖 Detailed Instructions:** [Build Instructions](../build.instructions.md)):
+1. **Verify prerequisites and baseline**
+   Use the Test-MergePrerequisites MCP tool:
    ```pwsh
-   Import-Module .\contrib\win32\openssh\OpenSSHBuildHelper.psm1 -Force
-   Start-OpenSSHBuild -Configuration Release -NativeHostArch x64
+   # Run prerequisite check via MCP tool
+   # MCP Tool Name: mcp_test-server_Test_MergePrerequisites
+   # Parameters: TargetVersion (required), SkipBaselineBuild (optional)
+   
+   # Example invocation (replace <VERSION> with target like "V_10_0_P2"):
+   # The MCP tool will verify:
+   # - Git, PowerShell, Visual Studio installed
+   # - Repository remotes configured (origin, upstream, upstream-pwsh)
+   # - Target version exists in upstream
+   # - Working directory is clean
+   # - Baseline build passes (unless SkipBaselineBuild is true)
+   # - First commit batch identified
+   
+   # Proceed only if tool reports "ALL PREREQUISITES MET"
    ```
 
 2. **Configure git:**
