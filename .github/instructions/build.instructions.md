@@ -64,27 +64,6 @@ The repository includes MCP tools that automate the build, verification, and err
 .\.github\tools\Test-OpenSSHBuild.ps1 -Configuration Release -Architecture x64
 ```
 
-### Using PowerShell Module Directly (Alternative)
-
-If you need direct access to the build module functions:
-
-#### Step 1: Environment Setup
-```pwsh
-# Navigate to repository root
-cd <repository-root>
-
-# Import build helper module
-Import-Module .\contrib\win32\openssh\OpenSSHBuildHelper.psm1 -Force
-
-# Verify module loaded
-Get-Command -Module OpenSSHBuildHelper
-```
-
-#### Step 2: Initial Build
-```pwsh
-Start-OpenSSHBuild -Configuration Release -NativeHostArch x64
-```
-
 ## Compilation Error Resolution
 
 ### Common Error Categories
@@ -254,17 +233,6 @@ contrib\win32\openssh\
 - ssh-agent.exe, ssh-add.exe, ssh-keygen.exe, ssh-keyscan.exe
 - scp.exe, sftp.exe, sftp-server.exe
 - ssh-pkcs11-helper.exe, ssh-shellhost.exe, ssh-sk-helper.exe
-
-### Manual Verification (Alternative)
-```pwsh
-# Check that all expected binaries were built
-$buildPath = ".\contrib\win32\openssh\x64\Release"
-Get-ChildItem $buildPath -Filter "*.exe" | Select-Object Name
-
-# Expected outputs:
-# a binary for each vcxproj file, e.g.
-# ssh.vcxproj -> ssh.exe
-```
 
 ### Quick Functionality Test
 ```pwsh

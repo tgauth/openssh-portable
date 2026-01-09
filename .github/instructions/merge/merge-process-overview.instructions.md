@@ -114,7 +114,6 @@ The process consists of several interconnected phases:
        git cherry-pick $commit
 
        # Build after every commit so we can attribute failures precisely.
-       # Prefer the MCP build helper if available; otherwise use Start-OpenSSHBuild.
        .\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
    }
    ```

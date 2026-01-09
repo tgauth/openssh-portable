@@ -24,23 +24,28 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 ### Key Tools Available
 
 1. **Get-CommitGroups MCP Tool** - Groups commits by CI presence or success
-   - **Access**: Available via MCP server (preferred method)
+   - **Access**: Available via MCP server
    - **MCP Tool Name**: `mcp_pwsh-mcp-server_Get_CommitGroups`
-   - **Direct Script**: `.github/tools/Get-CommitGroups.ps1` (fallback)
    - **Parameters**:
      - `GitHubTag` (string, optional): GitHub tag to start from (e.g., "V_10_0_P2")
      - `StartCommit` (string, optional): Commit SHA to start from
      - `FirstChunkOnly` (boolean, optional): Stop after finding first chunk
      - `GroupByCIPresence` (boolean, optional): Group by CI presence instead of CI success
    - **Recommended Usage**: Always use `-FirstChunkOnly -GroupByCIPresence` for incremental merging
-   - **Usage via MCP**: Use the MCP tool function directly - it handles all GitHub API calls
-   - **Manual Usage**: `Get-Help .\Get-CommitGroups.ps1` for direct script execution
+   - **Usage**: Use the MCP tool function directly - it handles all GitHub API calls
+   - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
-2. **OpenSSHBuildHelper Module** - Build automation
-   - Location: `contrib\win32\openssh\OpenSSHBuildHelper.psm1`
-   - Key cmdlet: `Start-OpenSSHBuild -Configuration Release -NativeHostArch x64`
+2. **Build-OpenSSH MCP Tool** - Build automation and verification
+   - **Access**: Available via `.github/tools/Build-OpenSSH.ps1`
+   - **Usage**: `.github/tools/Build-OpenSSH.ps1 -Configuration Release -Architecture x64`
+   - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
-3. **Git** - Version control operations
+3. **Test-OpenSSHFunctionality MCP Tool** - Functional testing
+   - **Access**: Available via `.github/tools/Test-OpenSSHFunctionality.ps1`
+   - **Usage**: `.github/tools/Test-OpenSSHFunctionality.ps1`
+   - **If tool unavailable**: ERROR - This tool is required for the merge workflow
+
+4. **Git** - Version control operations
    - Cherry-pick: `git cherry-pick start_commit^..end_commit` (inclusive)
    - Status: `git status`
    - Remotes: `origin`, `upstream-pwsh`, `upstream`
