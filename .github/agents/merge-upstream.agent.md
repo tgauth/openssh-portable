@@ -81,7 +81,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 2. Confirm repository remotes are configured
 3. Identify upstream version/tag to merge
 4. Create merge branch: `merge-v<VERSION>-<YYYYMMDD>`
-5. Perform baseline build on `latestw_all` branch
+5. Perform baseline build from current branch
 6. Use Get-CommitGroups with `-FirstChunkOnly -GroupByCIPresence` to get first commit batch
 
 **Success Criteria:**

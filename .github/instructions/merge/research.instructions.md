@@ -63,7 +63,7 @@ git log --oneline upstream/<target-version> --since="<last-merge-date>"
 git show <commit-hash>
 
 # Compare branches
-git diff upstream-pwsh/latestw_all upstream/<target-version>
+git diff HEAD upstream/<target-version>
 ```
 
 ## Windows-Specific Knowledge Base

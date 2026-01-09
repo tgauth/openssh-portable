@@ -42,7 +42,7 @@ git fetch --all
 ## Branch Strategy
 
 ### Understanding the Branch Structure
-- **upstream-pwsh/latestw_all**: Main Windows-compatible branch (base for merges)
+- **upstream-pwsh/latestw_all**: Main Windows-compatible branch
 - **upstream/master**: Latest upstream OpenSSH development
 - **upstream/V_X_Y_PZ**: Tagged releases (merge targets)
 
@@ -74,7 +74,6 @@ Before proceeding to merge:
 - [ ] Repository cloned successfully
 - [ ] All three remotes configured (origin, upstream, upstream-pwsh)
 - [ ] Can fetch from all remotes without errors
-- [ ] Can see upstream-pwsh/latestw_all branch
 - [ ] Can see upstream target version/branch
 - [ ] Working directory is clean (`git status` shows no uncommitted changes)
 

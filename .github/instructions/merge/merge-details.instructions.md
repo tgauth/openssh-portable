@@ -93,7 +93,7 @@ FUNCTION resolve_conflict(file_path, conflict_content):
 git show <commit-hash>
 
 # Compare files between branches
-git diff upstream-pwsh/latestw_all upstream/<version> -- <filepath>
+git diff HEAD upstream/<version> -- <filepath>
 ```
 
 ## Conflict Resolution Strategies

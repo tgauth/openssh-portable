@@ -47,24 +47,19 @@ The process consists of several interconnected phases:
 ## Merge Phase
 
 ### Initial Preparation
-1. **Checkout base branch:**
-   ```pwsh
-   git checkout upstream-pwsh/latestw_all
-   ```
-
-2. **Verify baseline build**
+1. **Verify baseline build**
    **(📖 Detailed Instructions:** [Build Instructions](../build.instructions.md)):
    ```pwsh
    Import-Module .\contrib\win32\openssh\OpenSSHBuildHelper.psm1 -Force
    Start-OpenSSHBuild -Configuration Release -NativeHostArch x64
    ```
 
-3. **Configure git:**
+2. **Configure git:**
     ```pwsh
     git config core.editor true
     ```
     
-3. **Create merge branch:**
+3. **Create merge branch from current branch:**
    ```pwsh
    git checkout -b merge-v<VERSION>-<DATE>
    # Example: merge-v9.8-20241010
@@ -235,7 +230,7 @@ The process consists of several interconnected phases:
     ```
 
 15. **Create Pull Request:**
-    - Target: `PowerShell/openssh-portable:latestw_all`
+    - Target: `PowerShell/openssh-portable:<branch>` (typically the branch you started from, e.g., latestw_all)
     - Title: `Merge upstream OpenSSH <VERSION>`
     - Include comprehensive description of changes and resolutions
 
