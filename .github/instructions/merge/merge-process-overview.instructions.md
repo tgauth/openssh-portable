@@ -60,8 +60,6 @@ The process consists of several interconnected phases:
    # - Repository remotes configured (origin, upstream, upstream-pwsh)
    # - Target version exists in upstream
    # - Working directory is clean
-   # - Baseline build passes (unless SkipBaselineBuild is true)
-   # - First commit batch identified
    
    # Proceed only if tool reports "ALL PREREQUISITES MET"
    ```
