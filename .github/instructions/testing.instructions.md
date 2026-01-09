@@ -13,16 +13,18 @@ This document provides comprehensive testing procedures for validating OpenSSH-P
 
 The repository includes an MCP tool that automates end-to-end functional testing of OpenSSH on Windows.
 
-```pwsh
-# Run automated functional test (requires Administrator privileges)
-.\.github\tools\Test-OpenSSHFunctionality.ps1
+Use the Test-OpenSSHFunctionality MCP tool:
+- **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+- **Parameters**:
+  - `Configuration` (optional): "Debug" or "Release" (default: "Release")
+  - `Architecture` (optional): "x64", "x86", "ARM", "ARM64" (default: "x64")
+  - `SkipFirewall` (optional): Skip firewall configuration (default: false)
+  - `NoCleanup` (optional): Skip cleanup for debugging (default: false)
 
-# Test with specific configuration
-.\.github\tools\Test-OpenSSHFunctionality.ps1 -Configuration Debug -Architecture x64
-
-# Skip firewall configuration if rules already exist
-.\.github\tools\Test-OpenSSHFunctionality.ps1 -SkipFirewall
-```
+**Examples:**
+- Run with defaults: (no parameters needed)
+- Test with specific configuration: `Configuration="Debug"`, `Architecture="x64"`
+- Skip firewall configuration: `SkipFirewall=true`
 
 **What the tool does:**
 1. Verifies Administrator privileges
@@ -69,9 +71,36 @@ Status: PASSED
 - `Errors`: Array of any errors encountered
 - `Message`: Summary message
 
-## Manual Testing Procedures
+## Primary Testing Approach
 
-If you need to perform manual testing or troubleshoot specific issues, follow these procedures:
+**Use the automated Test-OpenSSHFunctionality MCP tool for all testing.**
+
+The MCP tool performs comprehensive end-to-end testing including:
+- Administrator privilege verification
+- Temporary test user creation
+- SSH service installation and startup
+- Windows Firewall configuration
+- SSH connection testing with password authentication
+- Command execution verification
+- Complete cleanup of all test resources
+
+**MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+
+**Parameters**:
+- `Configuration` (optional): "Debug" or "Release" (default: "Release")
+- `Architecture` (optional): "x64", "x86", "ARM", "ARM64" (default: "x64")
+- `SkipFirewall` (optional): Skip firewall configuration (default: false)
+- `NoCleanup` (optional): Skip cleanup for debugging (default: false)
+
+**When to use**:
+- After successful build to validate functionality
+- During merge process at CI checkpoints
+- Before creating pull requests
+- When debugging SSH connectivity issues
+
+## Manual Testing Procedures (For Troubleshooting Only)
+
+If the automated MCP tool fails and you need to troubleshoot specific issues manually, follow these procedures:
 
 ### Prerequisites Check
 ```pwsh
@@ -197,7 +226,7 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 ## Success Criteria
 
 **Testing is successful when:**
-- [ ] All expected executables are present after build (verified by Test-OpenSSHBuild.ps1)
+- [ ] All expected executables are present after build (verified by Test-OpenSSHBuild MCP tool)
 - [ ] SSH service installs and starts without errors
 - [ ] SSH connection with password authentication succeeds
 - [ ] Test command executes successfully via SSH connection
@@ -206,7 +235,7 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 
 ## AI Agent Guidelines
 
-1. **Use automated testing tools** whenever possible - prefer Test-OpenSSHFunctionality.ps1 over manual procedures
+1. **Use automated testing tools** whenever possible - use the Test-OpenSSHFunctionality MCP tool over manual procedures
 2. **Run tests incrementally** during the merge process, not just at the end
 3. **Document any test failures** and their resolutions in commit messages
 4. **Pay special attention to Windows-specific functionality** that might be affected by upstream changes
@@ -216,9 +245,8 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 ### Recommended Testing Workflow for AI Agents
 
 1. **After successful build**, run the automated functionality test:
-   ```pwsh
-   .\.github\tools\Test-OpenSSHFunctionality.ps1
-   ```
+   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **Parameters**: (use defaults)
 
 2. **If test passes**, the merge is validated for basic SSH functionality
 

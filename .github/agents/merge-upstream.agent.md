@@ -25,7 +25,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 1. **Get-CommitGroups MCP Tool** - Groups commits by CI presence or success
    - **Access**: Available via MCP server
-   - **MCP Tool Name**: `mcp_pwsh-mcp-server_Get_CommitGroups`
+   - **MCP Tool Name**: `mcp_openssh-server_Get_CommitGroups`
    - **Parameters**:
      - `GitHubTag` (string, optional): GitHub tag to start from (e.g., "V_10_0_P2")
      - `StartCommit` (string, optional): Commit SHA to start from
@@ -36,13 +36,20 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
 2. **Build-OpenSSH MCP Tool** - Build automation and verification
-   - **Access**: Available via `.github/tools/Build-OpenSSH.ps1`
-   - **Usage**: `.github/tools/Build-OpenSSH.ps1 -Configuration Release -Architecture x64`
+   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
+   - **Parameters**:
+     - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
+     - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
+     - `Clean` (boolean, optional): Perform clean build (default: false)
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
 3. **Test-OpenSSHFunctionality MCP Tool** - Functional testing
-   - **Access**: Available via `.github/tools/Test-OpenSSHFunctionality.ps1`
-   - **Usage**: `.github/tools/Test-OpenSSHFunctionality.ps1`
+   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **Parameters**:
+     - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
+     - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
+     - `SkipFirewall` (boolean, optional): Skip firewall configuration (default: false)
+     - `NoCleanup` (boolean, optional): Skip cleanup for debugging (default: false)
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
 4. **Git** - Version control operations
@@ -83,7 +90,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 **Steps:**
 1. **Run prerequisite verification via MCP tool:**
-   - **MCP Tool Name**: `mcp_test-server_Test_MergePrerequisites`
+   - **MCP Tool Name**: `mcp_openssh-server_Test_MergePrerequisites`
    - **Parameters**:
      - `TargetVersion` (string, required): Upstream version/tag to merge (e.g., "V_10_0_P2")
      - `SkipBaselineBuild` (boolean, optional): Skip baseline build check (default: false)
@@ -116,25 +123,24 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 **Objective:** Cherry-pick commits in a single batch ending with a CI run
 
 **Steps:**
-1. **Get first commit batch** using Get-CommitGroups with `-FirstChunkOnly -GroupByCIPresence`:
-   ```pwsh
-   # For first batch - start from last merged tag
-   .github\tools\Get-CommitGroups.ps1 -GitHubTag "V_10_0_P2" -FirstChunkOnly -GroupByCIPresence
+1. **Get first commit batch** using Get-CommitGroups MCP tool:
+   - **MCP Tool Name**: `mcp_openssh-serve_Get_CommitGroups`
+   - **Parameters**:
+     - For first batch: `GitHubTag="V_10_0_P2"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+     - For subsequent batches: `StartCommit="<previous_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
    
-   # For subsequent batches - start from last batch's end commit
-   .github\tools\Get-CommitGroups.ps1 -StartCommit "<previous_end_commit>" -FirstChunkOnly -GroupByCIPresence
-   
-   # The tool returns structured data:
-   # {
-   #   "ChunkNumber": 1,
-   #   "StartCommit": "609fe2c",
-   #   "EndCommit": "6fb728d",
-   #   "StartCommitFull": "609fe2cae2459d721ac11d23cd27b8a94397ef3c",
-   #   "EndCommitFull": "6fb728df50c1afd338cb0223a84ce24579577eff",
-   #   "CommitCount": 12,
-   #   "StartMessage": "upstream: rework the text for -3 to make it clearer",
-   #   "EndMessage": "Run all tests on Cygwin again."
-   # }
+   **The tool returns structured data:**
+   ```json
+   {
+     "ChunkNumber": 1,
+     "StartCommit": "609fe2c",
+     "EndCommit": "6fb728d",
+     "StartCommitFull": "609fe2cae2459d721ac11d23cd27b8a94397ef3c",
+     "EndCommitFull": "6fb728df50c1afd338cb0223a84ce24579577eff",
+     "CommitCount": 12,
+     "StartMessage": "upstream: rework the text for -3 to make it clearer",
+     "EndMessage": "Run all tests on Cygwin again."
+   }
    ```
 
 2. **Display batch information for verification:**
@@ -164,9 +170,8 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 **Steps:**
 1. **Build the merged code:**
-   ```pwsh
-   .github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
-   ```
+   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
+   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
 2. **If build fails, fix compilation errors:**
    - Document all compilation errors from build output
@@ -180,12 +185,12 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Look for commits ending with `CIStatus: "success"` in the detailed output
 
 4. **If CI was successful, run validation tests:**
-   ```pwsh
-   .github\tools\Test-OpenSSHFunctionality.ps1
-   ```
-   - This test installs service, creates test user, validates SSH connectivity
-   - If tests fail, fix issues and commit fixes
-   - **Do not proceed** to next batch until tests pass
+   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **Parameters**: (use defaults for Release/x64)
+   
+   This test installs service, creates test user, validates SSH connectivity.
+   If tests fail, fix issues and commit fixes.
+   **Do not proceed** to next batch until tests pass.
 
 5. **If CI was not successful (or no CI), skip validation:**
    - Build success is sufficient to proceed
@@ -261,9 +266,8 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Summarize and get approval
 3. **Continue** until all target commits are merged or HEAD is reached
 4. **Perform final comprehensive validation:**
-   ```pwsh
-   .github\tools\Test-OpenSSHFunctionality.ps1
-   ```
+   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **Parameters**: (use defaults for Release/x64)
 
 **Success Criteria:**
 - All commit batches processed

@@ -51,7 +51,7 @@ The process consists of several interconnected phases:
    Use the Test-MergePrerequisites MCP tool:
    ```pwsh
    # Run prerequisite check via MCP tool
-   # MCP Tool Name: mcp_test-server_Test_MergePrerequisites
+   # MCP Tool Name: mcp_openssh-server_Test_MergePrerequisites
    # Parameters: TargetVersion (required), SkipBaselineBuild (optional)
    
    # Example invocation (replace <VERSION> with target like "V_10_0_P2"):
@@ -79,34 +79,40 @@ The process consists of several interconnected phases:
 
 ### Perform Merge with Grouped Commits
 4. **Identify merge range and group commits:**
-    Use .\tools\Get-CommitGroups.ps1 with `-FirstChunkOnly -GroupByCIPresence`
-   ```pwsh
-   # Find the last upstream tag in the fork (this is the starting point for the next merge)
-   # Call .\tools\Get-CommitGroups.ps1 -GitHubTag <last-upstream-tag> -FirstChunkOnly -GroupByCIPresence
-   # This gets commits ending with any commit that has CI runs (not just successful CI)
-   # Example output:
-   # {
-   #   "ChunkNumber": 1,
-   #   "StartCommit": "609fe2c",
-   #   "EndCommit": "6fb728d",
-   #   "StartCommitFull": "609fe2cae2459d721ac11d23cd27b8a94397ef3c",
-   #   "EndCommitFull": "6fb728df50c1afd338cb0223a84ce24579577eff",
-   #   "CommitCount": 57,
-   #   "StartMessage": "upstream: rework the text for -3 to make it clearer what default",
-   #   "EndMessage": "Run all tests on Cygwin again."
-   # }
-
-   # Print the commit batch details for verification
-   Write-Host "Processing batch: $($result.StartCommit)..$($result.EndCommit)"
-   Write-Host "Start: $($result.StartMessage)"
-   Write-Host "End: $($result.EndMessage)"
-   Write-Host "End Commit CI Status: $($result.EndCommit has CI runs)"
-
-   # After completing steps below, get next batch:
-   # Call .\tools\Get-CommitGroups.ps1 -StartCommit <end-commit-sha> -FirstChunkOnly -GroupByCIPresence
-   # Continue this process untiland
-   # follow the below steps to completion until the upstream's HEAD has been successfully merged
+    Use the Get-CommitGroups MCP tool with `-FirstChunkOnly -GroupByCIPresence`
+   
+   **MCP Tool Name**: `mcp_openssh-serve_Get_CommitGroups`
+   
+   **Parameters**:
+   - `GitHubTag` (string, optional): Start from last merged tag (e.g., "V_10_0_P2")
+   - `StartCommit` (string, optional): Start from specific commit SHA
+   - `FirstChunkOnly` (boolean): Set to `true`
+   - `GroupByCIPresence` (boolean): Set to `true`
+   
+   **Example for first batch**:
+   - Find the last upstream tag in the fork
+   - Call tool with `GitHubTag=<last-upstream-tag>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - This gets commits ending with any commit that has CI runs (not just successful CI)
+   
+   **Example output:**
+   ```json
+   {
+     "ChunkNumber": 1,
+     "StartCommit": "609fe2c",
+     "EndCommit": "6fb728d",
+     "StartCommitFull": "609fe2cae2459d721ac11d23cd27b8a94397ef3c",
+     "EndCommitFull": "6fb728df50c1afd338cb0223a84ce24579577eff",
+     "CommitCount": 57,
+     "StartMessage": "upstream: rework the text for -3 to make it clearer what default",
+     "EndMessage": "Run all tests on Cygwin again."
+   }
    ```
+
+   Display batch details for verification, then proceed with cherry-picking.
+
+   **After completing steps below, get next batch**:
+   - Call tool with `StartCommit=<end-commit-sha>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - Continue this process until the upstream's HEAD has been successfully merged
 
 5. **Execute chunked merge (commit-by-commit within the chunk):**
 
@@ -126,7 +132,8 @@ The process consists of several interconnected phases:
        git cherry-pick $commit
 
        # Build after every commit so we can attribute failures precisely.
-       .\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
+       # Use MCP Tool: mcp_openssh-serve_Build_OpenSSH
+       # Parameters: Configuration="Release", Architecture="x64"
    }
    ```
 
@@ -149,21 +156,19 @@ The process consists of several interconnected phases:
    ```
 
 9. **Build after completing the batch:**
-   ```pwsh
-   .\.github\tools\Build-OpenSSH.ps1 -Configuration Release -Architecture x64
+   Use the Build-OpenSSH MCP tool:
+   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
+   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
    
-   # If build fails, fix issues and rebuild
-   # Commit any build fixes separately
-   ```
+   If build fails, fix issues and rebuild. Commit any build fixes separately.
 
 10. **Validate if batch ended with successful CI:**
-    ```pwsh
-    # Check the end commit's CI status from Get-CommitGroups output
-    # If CI was successful, run validation:
-    .\.github\tools\Test-OpenSSHFunctionality.ps1
+    Check the end commit's CI status from Get-CommitGroups output.
+    If CI was successful, run validation:
+    - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+    - **Parameters**: (use defaults for Release/x64)
     
-    # If no CI or failed CI, skip validation (build success is sufficient)
-    ```
+    If no CI or failed CI, skip validation (build success is sufficient).
 
 11. **Provide summary and get approval:**
     - Summarize batch changes, conflicts resolved, build status, validation status
