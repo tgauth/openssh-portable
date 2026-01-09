@@ -75,8 +75,6 @@ $result = @{
     TargetExists = $false
     WorkingDirClean = $false
     BaselineBuildPassed = $null  # null if skipped
-    FirstChunkIdentified = $false
-    FirstChunk = $null
     Issues = @()
     Message = ""
 }
@@ -170,25 +168,33 @@ try {
     }
 
     # Step 5: Verify target version exists
-    Write-Host "`n[5/8] Checking target version exists..." -ForegroundColor Cyan
+    Write-Host "`n[5/7] Checking target version exists..." -ForegroundColor Cyan
     if ($result.GitInstalled -and $result.RemotesConfigured) {
         Write-Host "  Fetching from upstream..." -ForegroundColor Gray
-        git fetch upstream 2>&1 | Out-Null
+        git fetch upstream --tags 2>&1 | Out-Null
 
-        $tagExists = git rev-parse "upstream/$TargetVersion" 2>&1
+        # Check if it's a tag first, then try as a branch
+        $tagExists = git rev-parse "$TargetVersion" 2>&1
         if ($LASTEXITCODE -eq 0) {
             $result.TargetExists = $true
-            Write-Host "  ✓ Target exists: upstream/$TargetVersion" -ForegroundColor Green
+            Write-Host "  ✓ Target tag exists: $TargetVersion" -ForegroundColor Green
         } else {
-            $result.Issues += "Target version/tag 'upstream/$TargetVersion' not found"
-            Write-Host "  ✗ Target 'upstream/$TargetVersion' not found" -ForegroundColor Red
+            # Try as a branch
+            $branchExists = git rev-parse "upstream/$TargetVersion" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $result.TargetExists = $true
+                Write-Host "  ✓ Target branch exists: upstream/$TargetVersion" -ForegroundColor Green
+            } else {
+                $result.Issues += "Target version/tag '$TargetVersion' not found in upstream"
+                Write-Host "  ✗ Target '$TargetVersion' not found" -ForegroundColor Red
+            }
         }
     } else {
         Write-Host "  ⊘ Skipped (prerequisites not met)" -ForegroundColor Yellow
     }
 
     # Step 6: Verify working directory is clean
-    Write-Host "`n[6/8] Checking working directory state..." -ForegroundColor Cyan
+    Write-Host "`n[6/7] Checking working directory state..." -ForegroundColor Cyan
     if ($result.GitInstalled) {
         $status = git status --porcelain 2>&1
         if ([string]::IsNullOrWhiteSpace($status)) {
@@ -204,7 +210,7 @@ try {
     }
 
     # Step 7: Baseline build verification
-    Write-Host "`n[7/8] Verifying baseline build..." -ForegroundColor Cyan
+    Write-Host "`n[7/7] Verifying baseline build..." -ForegroundColor Cyan
     if ($SkipBaselineBuild) {
         Write-Host "  ⊘ Skipped (SkipBaselineBuild flag set)" -ForegroundColor Yellow
     } else {
@@ -228,47 +234,6 @@ try {
         }
     }
 
-    # Step 8: Identify first commit batch
-    Write-Host "`n[8/8] Identifying first commit batch..." -ForegroundColor Cyan
-    if ($result.GitInstalled -and $result.TargetExists) {
-        $commitGroupsScript = Join-Path $scriptRoot "Get-CommitGroups.ps1"
-        
-        Write-Host "  Finding last merged tag..." -ForegroundColor Gray
-        # Find the last upstream tag in current branch
-        $lastTag = git describe --tags --match "V_*" --abbrev=0 2>&1
-        
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "  Last merged tag: $lastTag" -ForegroundColor Gray
-            Write-Host "  Finding commits from $lastTag to $TargetVersion..." -ForegroundColor Gray
-            
-            try {
-                $firstChunk = & $commitGroupsScript -GitHubTag $lastTag -FirstChunkOnly -GroupByCIPresence
-                
-                if ($firstChunk -and $firstChunk.CommitCount -gt 0) {
-                    $result.FirstChunkIdentified = $true
-                    $result.FirstChunk = $firstChunk
-                    Write-Host "  ✓ First batch identified" -ForegroundColor Green
-                    Write-Host "    Range: $($firstChunk.StartCommit)..$($firstChunk.EndCommit)" -ForegroundColor Gray
-                    Write-Host "    Commits: $($firstChunk.CommitCount)" -ForegroundColor Gray
-                    Write-Host "    Start: $($firstChunk.StartMessage)" -ForegroundColor Gray
-                    Write-Host "    End: $($firstChunk.EndMessage)" -ForegroundColor Gray
-                } else {
-                    $result.Issues += "No commits found between $lastTag and $TargetVersion"
-                    Write-Host "  ⚠ No new commits found (may already be up to date)" -ForegroundColor Yellow
-                }
-            } catch {
-                $result.Issues += "Failed to get commit groups: $($_.Exception.Message)"
-                Write-Host "  ✗ Failed to get commit groups" -ForegroundColor Red
-                Write-Host "    $($_.Exception.Message)" -ForegroundColor Yellow
-            }
-        } else {
-            $result.Issues += "Could not find last merged tag (no V_* tags in current branch)"
-            Write-Host "  ✗ Could not find last merged tag" -ForegroundColor Red
-        }
-    } else {
-        Write-Host "  ⊘ Skipped (prerequisites not met)" -ForegroundColor Yellow
-    }
-
     # Final evaluation
     Write-Host "`n========================================" -ForegroundColor Cyan
     Write-Host "PREREQUISITE CHECK SUMMARY" -ForegroundColor Cyan
@@ -287,19 +252,14 @@ try {
         $criticalChecks += $result.BaselineBuildPassed
     }
 
-    # First chunk identification is informational, not critical
     $result.Success = ($criticalChecks | Where-Object { $_ -eq $false }).Count -eq 0
 
     if ($result.Success) {
         Write-Host "✓ ALL PREREQUISITES MET" -ForegroundColor Green
         Write-Host "`nYou are ready to begin the merge process:" -ForegroundColor White
-        Write-Host "  1. Create merge branch: git checkout -b merge-v$TargetVersion-$(Get-Date -Format 'yyyyMMdd')" -ForegroundColor Gray
-        Write-Host "  2. Begin cherry-picking commits from first batch" -ForegroundColor Gray
-        
-        if ($result.FirstChunkIdentified) {
-            Write-Host "`nFirst batch to merge:" -ForegroundColor White
-            Write-Host "  git cherry-pick $($result.FirstChunk.StartCommitFull)^..$($result.FirstChunk.EndCommitFull)" -ForegroundColor Gray
-        }
+        Write-Host "  1. Create merge branch: git checkout -b merge-$TargetVersion-$(Get-Date -Format 'yyyyMMdd')" -ForegroundColor Gray
+        Write-Host "  2. Use Get-CommitGroups tool to identify first batch of commits" -ForegroundColor Gray
+        Write-Host "  3. Begin cherry-picking commits from first batch" -ForegroundColor Gray
         
         $result.Message = "All prerequisites met. Ready to start merge."
     } else {
