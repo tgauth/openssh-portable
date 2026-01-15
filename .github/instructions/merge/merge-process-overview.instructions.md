@@ -158,7 +158,14 @@ The process consists of several interconnected phases:
    - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
    
-   If build fails, fix issues and rebuild. Commit any build fixes separately.
+   If build fails:
+   - **Use Test-OpenSSHBuild MCP tool to read the build log and parse errors**:
+     - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHBuild`
+     - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
+   - **DO NOT** try to read log files directly with `Get-Content` or locate them manually
+   - Fix issues based on parsed error output
+   - Rebuild and verify
+   - Commit any build fixes separately with descriptive messages
 
 10. **Validate if batch ended with successful CI:**
     Check the end commit's CI status from Get-CommitGroups output.

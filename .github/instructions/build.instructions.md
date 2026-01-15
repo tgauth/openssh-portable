@@ -149,12 +149,22 @@ fatal error C1083: Cannot open source file: 'newfile.c'
 5. **Rebuild and verify** using Build-OpenSSH MCP tool again
 6. **Commit fixes with detailed message**
 
-#### Manual Error Analysis Commands (if needed):
-Parse errors manually from log file using the Test-OpenSSHBuild MCP tool:
+#### Reading Build Logs and Errors:
+**ALWAYS use the Test-OpenSSHBuild MCP tool to read build logs and parse errors:**
 - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHBuild`
 - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
-Or use direct MSBuild with detailed logging:
+**Why use this tool:**
+- Automatically locates and parses the build log file
+- Provides structured error output with file paths, line numbers, error codes, and messages
+- Groups errors and warnings for easier analysis
+- Works reliably in MCP context where direct file reading may not be available
+
+**DO NOT** attempt to read log files directly with `Get-Content` or similar commands.
+**DO NOT** try to locate log files manually.
+
+#### Alternative: Direct MSBuild (Terminal Only)
+Only use this when running directly in a terminal (not via MCP):
 ```pwsh
 & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" .\contrib\win32\openssh\Win32-OpenSSH.sln /p:Configuration=Release /p:Platform=x64 /v:detailed
 ```
