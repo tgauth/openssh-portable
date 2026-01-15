@@ -47,7 +47,7 @@
     Tests debug build artifacts for x86 using a custom log file location.
 
 .NOTES
-    - Expected build artifact location: contrib\win32\openssh\{Architecture}\{Configuration}\
+    - Expected build artifact location: bin\{Architecture}\{Configuration}\
     - Error parsing regex: ^(?<file>.*?)\((?<line>\d+)[,)].*?error (?<code>(C|LNK)\d+): (?<message>.*)$
     - Warning parsing regex: ^(?<file>.*?)\((?<line>\d+)[,)].*?warning (?<code>(C|LNK)\d+): (?<message>.*)$
 #>
@@ -96,7 +96,7 @@ try {
     Write-Host "========================================`n" -ForegroundColor Cyan
 
     # Define build output path
-    $buildPath = Join-Path $repoRoot "contrib\win32\openssh\$Architecture\$Configuration"
+    $buildPath = Join-Path $repoRoot "bin\$Architecture\$Configuration"
 
     if (-not (Test-Path $buildPath)) {
         Write-Host "Build path does not exist: $buildPath" -ForegroundColor Red
