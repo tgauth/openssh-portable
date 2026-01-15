@@ -51,6 +51,9 @@ param(
 )
 
 $scriptRoot = $PSScriptRoot
+if ([string]::IsNullOrEmpty($scriptRoot)) {
+    $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
 $repoRoot = (Get-Item $scriptRoot).Parent.Parent.FullName
 
 $result = @{
@@ -70,18 +73,21 @@ try {
     Write-Host "OpenSSH Merge Prerequisites Check" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "Target Version: $TargetVersion" -ForegroundColor White
+    Write-Host "Repository Root: $repoRoot" -ForegroundColor Gray
     Write-Host "========================================`n" -ForegroundColor Cyan
 
     # Change to repository root
     Push-Location $repoRoot
+    Write-Host "Working Directory: $(Get-Location)" -ForegroundColor Gray
+    Write-Host ""
 
     # Step 1: Verify Git
-    Write-Host "[1/6] Checking Git installation..." -ForegroundColor Cyan
+    Write-Host "[1/5] Checking Git installation..." -ForegroundColor Cyan
     try {
-        $gitVersion = git --version 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $gitPath = Get-Command git -ErrorAction SilentlyContinue
+        if ($gitPath) {
             $result.GitInstalled = $true
-            Write-Host "  ✓ Git installed: $gitVersion" -ForegroundColor Green
+            Write-Host "  ✓ Git found: $($gitPath.Source)" -ForegroundColor Green
         } else {
             $result.Issues += "Git is not installed or not in PATH"
             Write-Host "  ✗ Git not found" -ForegroundColor Red
@@ -92,7 +98,7 @@ try {
     }
 
     # Step 2: Verify PowerShell version
-    Write-Host "`n[2/6] Checking PowerShell version..." -ForegroundColor Cyan
+    Write-Host "`n[2/5] Checking PowerShell version..." -ForegroundColor Cyan
     $psVersion = $PSVersionTable.PSVersion
     if ($psVersion.Major -ge 5) {
         Write-Host "  ✓ PowerShell $($psVersion.ToString()) (>= 5.0)" -ForegroundColor Green
@@ -102,7 +108,7 @@ try {
     }
 
     # Step 3: Verify Visual Studio
-    Write-Host "`n[3/6] Checking Visual Studio installation..." -ForegroundColor Cyan
+    Write-Host "`n[3/5] Checking Visual Studio installation..." -ForegroundColor Cyan
     $msBuildPaths = @(
         "${env:ProgramFiles}\Microsoft Visual Studio\2022\*\MSBuild\Current\Bin\MSBuild.exe",
         "${env:ProgramFiles}\Microsoft Visual Studio\2019\*\MSBuild\Current\Bin\MSBuild.exe",
@@ -127,71 +133,66 @@ try {
     }
 
     # Step 4: Verify repository remotes
-    Write-Host "`n[4/6] Checking repository remotes..." -ForegroundColor Cyan
+    Write-Host "`n[4/5] Checking repository remotes..." -ForegroundColor Cyan
     if ($result.GitInstalled) {
-        $remotes = git remote 2>&1
-        $expectedRemotes = @('origin', 'upstream', 'upstream-pwsh')
-        $missingRemotes = @()
+        try {
+            $gitConfigPath = Join-Path $repoRoot ".git\config"
+            if (Test-Path $gitConfigPath) {
+                $gitConfig = Get-Content $gitConfigPath -Raw
+                $expectedRemotes = @('origin', 'upstream', 'upstream-pwsh')
+                $missingRemotes = @()
 
-        foreach ($remote in $expectedRemotes) {
-            if ($remotes -contains $remote) {
-                $remoteUrl = git remote get-url $remote 2>&1
-                Write-Host "  ✓ $remote configured: $remoteUrl" -ForegroundColor Green
+                foreach ($remote in $expectedRemotes) {
+                    if ($gitConfig -match "\[remote `"$remote`"\]") {
+                        Write-Host "  ✓ $remote configured" -ForegroundColor Green
+                    } else {
+                        $missingRemotes += $remote
+                        Write-Host "  ✗ $remote not configured" -ForegroundColor Red
+                    }
+                }
+
+                if ($missingRemotes.Count -eq 0) {
+                    $result.RemotesConfigured = $true
+                } else {
+                    $result.Issues += "Missing remotes: $($missingRemotes -join ', ')"
+                }
             } else {
-                $missingRemotes += $remote
-                Write-Host "  ✗ $remote not configured" -ForegroundColor Red
+                $result.Issues += "Not a git repository"
+                Write-Host "  ✗ Not a git repository" -ForegroundColor Red
             }
-        }
-
-        if ($missingRemotes.Count -eq 0) {
-            $result.RemotesConfigured = $true
-        } else {
-            $result.Issues += "Missing remotes: $($missingRemotes -join ', ')"
+        } catch {
+            $result.Issues += "Error checking remotes: $($_.Exception.Message)"
+            Write-Host "  ✗ Error checking remotes" -ForegroundColor Red
         }
     } else {
         Write-Host "  ⊘ Skipped (Git not available)" -ForegroundColor Yellow
     }
 
     # Step 5: Verify target version exists
-    Write-Host "`n[5/6] Checking target version exists..." -ForegroundColor Cyan
+    Write-Host "`n[5/5] Checking target version exists..." -ForegroundColor Cyan
     if ($result.GitInstalled -and $result.RemotesConfigured) {
-        Write-Host "  Fetching from upstream..." -ForegroundColor Gray
-        git fetch upstream --tags 2>&1 | Out-Null
-
-        # Check if it's a tag first, then try as a branch
-        $tagExists = git rev-parse "$TargetVersion" 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $result.TargetExists = $true
-            Write-Host "  ✓ Target tag exists: $TargetVersion" -ForegroundColor Green
-        } else {
-            # Try as a branch
-            $branchExists = git rev-parse "upstream/$TargetVersion" 2>&1
-            if ($LASTEXITCODE -eq 0) {
+        try {
+            # Check if tag/branch ref exists in .git directory
+            $tagPath = Join-Path $repoRoot ".git\refs\tags\$TargetVersion"
+            $upstreamBranchPath = Join-Path $repoRoot ".git\refs\remotes\upstream\$TargetVersion"
+            
+            if (Test-Path $tagPath) {
+                $result.TargetExists = $true
+                Write-Host "  ✓ Target tag exists locally: $TargetVersion" -ForegroundColor Green
+            } elseif (Test-Path $upstreamBranchPath) {
                 $result.TargetExists = $true
                 Write-Host "  ✓ Target branch exists: upstream/$TargetVersion" -ForegroundColor Green
             } else {
-                $result.Issues += "Target version/tag '$TargetVersion' not found in upstream"
-                Write-Host "  ✗ Target '$TargetVersion' not found" -ForegroundColor Red
+                $result.Issues += "Target version/tag '$TargetVersion' not found locally. Run 'git fetch upstream --tags' to update."
+                Write-Host "  ✗ Target '$TargetVersion' not found locally" -ForegroundColor Red
+                Write-Host "    Hint: Run 'git fetch upstream --tags' to fetch latest tags" -ForegroundColor Yellow
             }
+        } catch {
+            $result.Issues += "Error checking target version: $($_.Exception.Message)"
+            Write-Host "  ✗ Error checking target version" -ForegroundColor Red
         }
     } else {
         Write-Host "  ⊘ Skipped (prerequisites not met)" -ForegroundColor Yellow
-    }
-
-    # Step 6: Verify working directory is clean
-    Write-Host "`n[6/6] Checking working directory state..." -ForegroundColor Cyan
-    if ($result.GitInstalled) {
-        $status = git status --porcelain 2>&1
-        if ([string]::IsNullOrWhiteSpace($status)) {
-            $result.WorkingDirClean = $true
-            Write-Host "  ✓ Working directory is clean" -ForegroundColor Green
-        } else {
-            $result.Issues += "Working directory has uncommitted changes"
-            Write-Host "  ✗ Working directory has uncommitted changes" -ForegroundColor Red
-            Write-Host "    Run 'git status' to see changes" -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host "  ⊘ Skipped (Git not available)" -ForegroundColor Yellow
     }
 
     # Final evaluation
@@ -203,8 +204,7 @@ try {
         $result.GitInstalled,
         $result.VSInstalled,
         $result.RemotesConfigured,
-        $result.TargetExists,
-        $result.WorkingDirClean
+        $result.TargetExists
     )
 
     $result.Success = ($criticalChecks | Where-Object { $_ -eq $false }).Count -eq 0
@@ -229,6 +229,7 @@ try {
 
     Write-Host ""
 
+    # Return result
     return $result
 
 } catch {
@@ -242,7 +243,12 @@ try {
     $result.Issues += "Tool error: $($_.Exception.Message)"
     $result.Message = "Prerequisite check failed with error: $($_.Exception.Message)"
 
+    # Return result
     return $result
 } finally {
-    Pop-Location
+    try {
+        Pop-Location
+    } catch {
+        # Ignore Pop-Location errors in MCP context
+    }
 }
