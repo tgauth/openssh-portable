@@ -280,7 +280,7 @@ try {
 
 # Process commits and check CI status
 $statusCheckMessage = if ($GroupByCIPresence) { "Checking CI presence for each commit..." } else { "Checking CI status for each commit..." }
-Write-Host "\n$statusCheckMessage" -ForegroundColor Cyan
+Write-Host "`n$statusCheckMessage" -ForegroundColor Cyan
 
 $commitsWithStatus = @()
 $chunks = @()
