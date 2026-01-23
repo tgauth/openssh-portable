@@ -69,20 +69,6 @@ The process consists of several interconnected phases:
     git config core.editor true
     ```
 
-3. **Create merge branch (if not already created):**
-   ```pwsh
-   # Check if branch already exists
-   git rev-parse --verify merge-v<VERSION>-<DATE> 2>$null
-   
-   # If it doesn't exist, create it
-   git checkout -b merge-v<VERSION>-<DATE>
-   # Example: merge-v9.8-20241010
-   
-   # If it already exists, switch to it
-   git checkout merge-v<VERSION>-<DATE>
-   ```
-   **Note:** The Test-MergePrerequisites tool will suggest the branch name. Create it once and reuse it throughout the merge process.
-
 ### Perform Merge with Grouped Commits
 4. **Identify merge range and group commits:**
     Use the Get-CommitGroups MCP tool with `-FirstChunkOnly -GroupByCIPresence`
