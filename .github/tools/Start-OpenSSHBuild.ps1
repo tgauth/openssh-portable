@@ -116,8 +116,8 @@ try {
         Write-Host "✓ Cleaned: $buildPath" -ForegroundColor Green
     }
 
-    # Build log file path
-    $logFile = Join-Path $repoRoot "OpenSSH$Configuration$Architecture.log"
+    # Build log file path (align with other tools under contrib\win32\openssh)
+    $logFile = Join-Path $repoRoot "contrib\win32\openssh\OpenSSH$Configuration$Architecture.log"
     Write-Host "`nBuild log: $logFile" -ForegroundColor Gray
 
     # Prepare parameters for Start-OpenSSHBuild
@@ -140,8 +140,25 @@ try {
 
     $buildResult = Start-OpenSSHBuild @buildParams
 
-    # Check build result
-    if ($buildResult -eq 0) {
+    # Determine build success primarily via log markers, not exit code
+    $successByLog = $null
+    $buildLogTime = $null
+    if (Test-Path $logFile) {
+        $buildLogTime = (Get-Item $logFile -ErrorAction SilentlyContinue).LastWriteTime
+        $logLines = Get-Content $logFile -ErrorAction SilentlyContinue
+        if ($logLines) {
+            $lastMarker = $null
+            foreach ($line in $logLines) {
+                if ($line -match '(?i)Build\s+(FAILED|Failed)') { $lastMarker = 'FAILED' }
+                elseif ($line -match '(?i)Build\s+(SUCCEEDED|Succeeded)') { $lastMarker = 'SUCCEEDED' }
+            }
+            if ($lastMarker) { $successByLog = ($lastMarker -eq 'SUCCEEDED') }
+        }
+    }
+
+    $derivedSuccess = if ($successByLog -ne $null) { $successByLog } else { $buildResult -eq 0 }
+
+    if ($derivedSuccess) {
         Write-Host "`n========================================" -ForegroundColor Green
         Write-Host "BUILD SUCCEEDED" -ForegroundColor Green
         Write-Host "========================================" -ForegroundColor Green
@@ -149,9 +166,10 @@ try {
 
         $result = @{
             Success = $true
-            ExitCode = 0
+            ExitCode = $buildResult
             LogFile = $logFile
             BuildPath = $buildPath
+            BuildLogTimestamp = $buildLogTime
             Message = "Build completed successfully"
         }
     } else {
@@ -166,7 +184,8 @@ try {
             ExitCode = $buildResult
             LogFile = $logFile
             BuildPath = $buildPath
-            Message = "Build failed with exit code $buildResult. Check log file for details."
+            BuildLogTimestamp = $buildLogTime
+            Message = "Build failed (determined from log markers or exit code). Check log file for details."
         }
     }
 

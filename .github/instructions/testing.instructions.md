@@ -14,7 +14,7 @@ This document provides comprehensive testing procedures for validating OpenSSH-P
 The repository includes an MCP tool that automates end-to-end functional testing of OpenSSH on Windows.
 
 Use the Test-OpenSSHFunctionality MCP tool:
-- **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+- **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
 - **Parameters**:
   - `Configuration` (optional): "Debug" or "Release" (default: "Release")
   - `Architecture` (optional): "x64", "x86", "ARM", "ARM64" (default: "x64")
@@ -84,7 +84,7 @@ The MCP tool performs comprehensive end-to-end testing including:
 - Command execution verification
 - Complete cleanup of all test resources
 
-**MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+**MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
 
 **Parameters**:
 - `Configuration` (optional): "Debug" or "Release" (default: "Release")
@@ -245,7 +245,7 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 ### Recommended Testing Workflow for AI Agents
 
 1. **After successful build**, run the automated functionality test:
-   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**: (use defaults)
 
 2. **If test passes**, the merge is validated for basic SSH functionality

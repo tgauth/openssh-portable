@@ -253,12 +253,14 @@ FUNCTION automated_build_fix():
     iteration = 0
 
     WHILE iteration < MAX_ITERATIONS:
-        build_result = attempt_build()
+        // Always start with Start-OpenSSHBuild.ps1
+        build_result = start_openssh_build(Configuration="Release", Architecture="x64")
 
         IF build_result.success:
             RETURN SUCCESS
 
-        errors = parse_build_errors(build_result.output)
+        // Only invoke Test-OpenSSHBuild.ps1 when build failed
+        errors = test_openssh_build(Configuration="Release", Architecture="x64", LogFile=build_result.log)
         fixes_applied = []
 
         FOR EACH error IN errors:
@@ -288,6 +290,12 @@ FUNCTION determine_fix_strategy(error):
         DEFAULT:
             RETURN null
 ```
+
+### Build Tools Invocation Policy
+
+- Use `Start-OpenSSHBuild.ps1` to run the build for each chunk/batch.
+- Only if `Start-OpenSSHBuild.ps1` reports the build failed, invoke `Test-OpenSSHBuild.ps1` to parse errors and warnings from the build log.
+- Skip `Test-OpenSSHBuild.ps1` when the build succeeded to avoid unnecessary log parsing.
 
 ## Testing Automation Framework
 

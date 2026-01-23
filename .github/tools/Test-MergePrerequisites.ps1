@@ -8,13 +8,13 @@
     - Required tools (Git, PowerShell, Visual Studio)
     - Repository configuration (remotes, branch state)
     - Target version identification
-    
+
     This tool should be run before starting Phase 1 of the merge workflow to ensure
     all prerequisites are met. It prevents wasted effort by catching configuration
     issues early.
-    
+
     To verify baseline build capability, use the Test-OpenSSHBuild MCP tool:
-      mcp_openssh-serve_Test_OpenSSHBuild
+      mcp_openssh-server_Test_OpenSSHBuild
 
 .PARAMETER TargetVersion
     The upstream version/tag to merge (e.g., "V_10_0_P2", "V_9_9_P1")
@@ -41,7 +41,7 @@
 .NOTES
     - This is a Phase 1 Pre-Merge Setup verification tool
     - Should be run before creating the merge branch
-    - For baseline build verification, use: mcp_openssh-serve_Test_OpenSSHBuild
+    - For baseline build verification, use: mcp_openssh-server_Test_OpenSSHBuild
     - Part of the OpenSSH upstream merge workflow automation
 #>
 
@@ -175,7 +175,7 @@ try {
             # Check if tag/branch ref exists in .git directory
             $tagPath = Join-Path $repoRoot ".git\refs\tags\$TargetVersion"
             $upstreamBranchPath = Join-Path $repoRoot ".git\refs\remotes\upstream\$TargetVersion"
-            
+
             if (Test-Path $tagPath) {
                 $result.TargetExists = $true
                 Write-Host "  ✓ Target tag exists locally: $TargetVersion" -ForegroundColor Green
@@ -216,7 +216,7 @@ try {
         Write-Host "  1. Create merge branch: git checkout -b merge-$TargetVersion-$(Get-Date -Format 'yyyyMMdd')" -ForegroundColor Gray
         Write-Host "  2. Use Get-CommitGroups tool to identify first batch of commits" -ForegroundColor Gray
         Write-Host "  3. Begin cherry-picking commits from first batch" -ForegroundColor Gray
-        
+
         $result.Message = "All prerequisites met. Ready to start merge."
     } else {
         Write-Host "✗ PREREQUISITES NOT MET" -ForegroundColor Red

@@ -48,8 +48,10 @@
 
 .NOTES
     - Expected build artifact location: bin\{Architecture}\{Configuration}\
-    - Error parsing regex: ^(?<file>.*?)\((?<line>\d+)[,)].*?error (?<code>(C|LNK)\d+): (?<message>.*)$
-    - Warning parsing regex: ^(?<file>.*?)\((?<line>\d+)[,)].*?warning (?<code>(C|LNK)\d+): (?<message>.*)$
+    - Error parsing regex (file/line form): ^(?<file>.+?)\((?<line>\d+)[,)].*?\s(?<severity>fatal error|error)\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$
+    - Error parsing regex (generic/no line): ^(?:.*?:\s*)?(?<severity>fatal error|error)\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$
+    - Warning parsing regex (file/line form): ^(?<file>.+?)\((?<line>\d+)[,)].*?\swarning\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$
+    - Warning parsing regex (generic/no line): ^(?:.*?:\s*)?warning\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$
 #>
 
 param(
@@ -149,18 +151,38 @@ try {
         Write-Host "`nParsing build log: $LogFile" -ForegroundColor Cyan
 
         $logContent = Get-Content $LogFile -ErrorAction SilentlyContinue
+        $logTime = (Get-Item $LogFile -ErrorAction SilentlyContinue).LastWriteTime
 
         if ($logContent) {
-            # Error regex: file(line) : error CODE: message
-            # Example: c:\path\file.c(123): error C2065: 'identifier' : undeclared identifier
-            $errorRegex = '^(?<file>.*?)\((?<line>\d+)[,)].*?error (?<code>(C|LNK)\d+): (?<message>.*)$'
+            # Find the first build status marker and, if failed, only scan lines after it
+            $buildStatusIndex = $null
+            $buildFailed = $false
+            for ($i = 0; $i -lt $logContent.Count; $i++) {
+                $line = $logContent[$i]
+                if ($line -match 'Build\s+(FAILED|Failed)') {
+                    $buildStatusIndex = $i
+                    $buildFailed = $true
+                    break
+                } elseif ($line -match 'Build\s+(SUCCEEDED|Succeeded)') {
+                    $buildStatusIndex = $i
+                    break
+                }
+            }
 
-            # Warning regex: similar pattern for warnings
-            $warningRegex = '^(?<file>.*?)\((?<line>\d+)[,)].*?warning (?<code>(C|LNK)\d+): (?<message>.*)$'
+            $linesToScan = $logContent
+            if ($buildFailed -and $buildStatusIndex -ne $null -and $buildStatusIndex + 1 -lt $logContent.Count) {
+                $linesToScan = $logContent[($buildStatusIndex + 1)..($logContent.Count - 1)]
+            }
 
-            foreach ($line in $logContent) {
-                # Check for errors
-                if ($line -match $errorRegex) {
+            # Broadened regex patterns to support linker/MSBuild messages without line numbers
+            $errorWithFileRegex   = '^(?<file>.+?)\((?<line>\d+)[,)].*?\s(?<severity>fatal error|error)\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$'
+            $genericErrorRegex    = '^(?:.*?:\s*)?(?<severity>fatal error|error)\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$'
+            $warningWithFileRegex = '^(?<file>.+?)\((?<line>\d+)[,)].*?\swarning\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$'
+            $genericWarningRegex  = '^(?:.*?:\s*)?warning\s+(?<code>(?:C|LNK|MSB)\d+)\s*:\s*(?<message>.+)$'
+
+            foreach ($line in $linesToScan) {
+                # Errors with file/line
+                if ($line -match $errorWithFileRegex) {
                     $errors += [PSCustomObject]@{
                         File = $matches['file']
                         Line = [int]$matches['line']
@@ -168,12 +190,35 @@ try {
                         Message = $matches['message']
                         RawLine = $line
                     }
+                    continue
                 }
-                # Check for warnings
-                elseif ($line -match $warningRegex) {
+                # Generic errors (e.g., LINK/MSBuild without line numbers)
+                if ($line -match $genericErrorRegex) {
+                    $errors += [PSCustomObject]@{
+                        File = ''
+                        Line = $null
+                        Code = $matches['code']
+                        Message = $matches['message']
+                        RawLine = $line
+                    }
+                    continue
+                }
+                # Warnings with file/line
+                if ($line -match $warningWithFileRegex) {
                     $warnings += [PSCustomObject]@{
                         File = $matches['file']
                         Line = [int]$matches['line']
+                        Code = $matches['code']
+                        Message = $matches['message']
+                        RawLine = $line
+                    }
+                    continue
+                }
+                # Generic warnings
+                if ($line -match $genericWarningRegex) {
+                    $warnings += [PSCustomObject]@{
+                        File = ''
+                        Line = $null
                         Code = $matches['code']
                         Message = $matches['message']
                         RawLine = $line
@@ -184,7 +229,12 @@ try {
             if ($errors.Count -gt 0) {
                 Write-Host "`nFound $($errors.Count) error(s) in build log:" -ForegroundColor Red
                 foreach ($e in $errors) {
-                    Write-Host "  $($e.File)($($e.Line)): error $($e.Code): $($e.Message)" -ForegroundColor Red
+                    if ([string]::IsNullOrEmpty($e.File)) {
+                        Write-Host "  error $($e.Code): $($e.Message)" -ForegroundColor Red
+                    } else {
+                        $lineSuffix = if ($e.Line -ne $null) { "(" + $e.Line + ")" } else { "" }
+                        Write-Host ("  {0}{1}: error {2}: {3}" -f $e.File, $lineSuffix, $e.Code, $e.Message) -ForegroundColor Red
+                    }
                 }
             } else {
                 Write-Host "`n✓ No errors found in build log" -ForegroundColor Green
@@ -193,7 +243,12 @@ try {
             if ($warnings.Count -gt 0) {
                 Write-Host "`nFound $($warnings.Count) warning(s) in build log:" -ForegroundColor Yellow
                 foreach ($warning in $warnings | Select-Object -First 10) {
-                    Write-Host "  $($warning.File)($($warning.Line)): warning $($warning.Code): $($warning.Message)" -ForegroundColor Yellow
+                    if ([string]::IsNullOrEmpty($warning.File)) {
+                        Write-Host "  warning $($warning.Code): $($warning.Message)" -ForegroundColor Yellow
+                    } else {
+                        $lineSuffix = if ($warning.Line -ne $null) { "(" + $warning.Line + ")" } else { "" }
+                        Write-Host ("  {0}{1}: warning {2}: {3}" -f $warning.File, $lineSuffix, $warning.Code, $warning.Message) -ForegroundColor Yellow
+                    }
                 }
                 if ($warnings.Count -gt 10) {
                     Write-Host "  ... and $($warnings.Count - 10) more warnings" -ForegroundColor Gray
@@ -202,6 +257,8 @@ try {
         } else {
             Write-Host "Log file is empty or could not be read" -ForegroundColor Yellow
         }
+
+        # Timestamp freshness checks removed; rely on build log parsing instead
     } else {
         Write-Host "`nBuild log not found: $LogFile" -ForegroundColor Yellow
     }
@@ -234,6 +291,7 @@ try {
         Errors = $errors
         Warnings = $warnings
         LogFile = $LogFile
+        # BuildLogTimestamp and stale artifact checks removed
         Message = $message
     }
 

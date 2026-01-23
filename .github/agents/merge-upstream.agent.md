@@ -35,16 +35,16 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - **Usage**: Use the MCP tool function directly - it handles all GitHub API calls
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
-2. **Build-OpenSSH MCP Tool** - Build automation and verification
-   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
-   - **Parameters**:
-     - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
-     - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
-     - `Clean` (boolean, optional): Perform clean build (default: false)
-   - **If tool unavailable**: ERROR - This tool is required for the merge workflow
+2. **Start-OpenSSHBuild MCP Tool** - Build automation
+    - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
+    - **Parameters**:
+       - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
+       - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
+       - `Clean` (boolean, optional): Perform clean build (default: false)
+    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
 3. **Test-OpenSSHFunctionality MCP Tool** - Functional testing
-   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**:
      - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
      - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
@@ -94,7 +94,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - **Parameters**:
      - `TargetVersion` (string, required): Upstream version/tag to merge (e.g., "V_10_0_P2")
      - `SkipBaselineBuild` (boolean, optional): Skip baseline build check (default: false)
-   
+
    This single tool verifies:
    - Git, PowerShell, Visual Studio are available
    - Repository remotes are configured (origin, upstream, upstream-pwsh)
@@ -124,11 +124,11 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 **Steps:**
 1. **Get first commit batch** using Get-CommitGroups MCP tool:
-   - **MCP Tool Name**: `mcp_openssh-serve_Get_CommitGroups`
+   - **MCP Tool Name**: `mcp_openssh-server_Get_CommitGroups`
    - **Parameters**:
      - For first batch: `GitHubTag="V_10_0_P2"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
      - For subsequent batches: `StartCommit="<previous_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
-   
+
    **The tool returns structured data:**
    ```json
    {
@@ -170,7 +170,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 **Steps:**
 1. **Build the merged code:**
-   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
+   - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
 2. **If build fails, fix compilation errors:**
@@ -185,9 +185,9 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Look for commits ending with `CIStatus: "success"` in the detailed output
 
 4. **If CI was successful, run validation tests:**
-   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**: (use defaults for Release/x64)
-   
+
    This test installs service, creates test user, validates SSH connectivity.
    If tests fail, fix issues and commit fixes.
    **Do not proceed** to next batch until tests pass.
@@ -216,31 +216,31 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 1. **Generate batch summary:**
    ```markdown
    ## Batch Completion Summary
-   
+
    **Batch:** [StartCommit]..[EndCommit] (<count> commits)
    **End Commit CI Status:** <success/failure/no_ci/has_ci>
-   
+
    ### Changes in this Batch:
    - <List key changes from commit messages>
    - <Note any significant upstream features>
    - <Mention security fixes if any>
-   
+
    ### Conflicts Resolved:
    - <file1>: <resolution strategy>
    - <file2>: <resolution strategy>
-   
+
    ### Build Status:
    - Build: ✅ Success / ❌ Failed
    - Build fixes applied: <Yes/No - describe if yes>
-   
+
    ### Validation Status:
    - Validation tests: ✅ Passed / ⏭️ Skipped (no successful CI) / ❌ Failed
    - Test fixes applied: <describe if any>
-   
+
    ### Next Steps:
    - Next batch will start from commit: <EndCommitFull>
    - Estimated remaining batches: <if known>
-   
+
    **Ready to proceed to next batch?**
    ```
 
@@ -266,7 +266,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Summarize and get approval
 3. **Continue** until all target commits are merged or HEAD is reached
 4. **Perform final comprehensive validation:**
-   - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+   - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**: (use defaults for Release/x64)
 
 **Success Criteria:**

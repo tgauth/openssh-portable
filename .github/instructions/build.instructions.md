@@ -28,31 +28,11 @@ git --version
 
 ### Using MCP Build Tools (Recommended)
 
-The repository includes MCP tools that automate the build, verification, and error analysis process.
+The repository includes MCP tools that automate the build and error analysis process.
 
-#### Option 1: Build & Verify (Recommended)
-Use the Build-OpenSSH MCP tool:
-- **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
-- **Parameters**:
-  - `Configuration` (optional): "Debug" or "Release" (default: "Release")
-  - `Architecture` (optional): "x64", "x86", "ARM", "ARM64" (default: "x64")
-  - `Clean` (optional): Perform clean build (default: false)
-
-**Examples:**
-- Complete build and verification: `Configuration="Release"`, `Architecture="x64"`
-- Clean build: `Configuration="Release"`, `Architecture="x64"`, `Clean=true`
-- Debug build: `Configuration="Debug"`, `Architecture="x64"`
-
-**Output includes:**
-- Build success/failure status
-- All 14 expected artifacts verification
-- Parsed compilation errors with file/line/code/message
-- Build warnings summary
-- Build log location
-
-#### Option 2: Build Only
+#### Build
 Use the Start-OpenSSHBuild MCP tool:
-- **MCP Tool Name**: `mcp_openssh-serve_Start_OpenSSHBuild`
+- **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
 - **Parameters**:
   - `Configuration` (optional): "Debug" or "Release" (default: "Release")
   - `Architecture` (optional): "x64", "x86", "ARM", "ARM64" (default: "x64")
@@ -62,9 +42,9 @@ Use the Start-OpenSSHBuild MCP tool:
 - Incremental build: `Configuration="Release"`, `Architecture="x64"`
 - Clean build: `Configuration="Release"`, `Architecture="x64"`, `Clean=true`
 
-#### Option 3: Test Existing Build
-Use the Test-OpenSSHBuild MCP tool:
-- **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHBuild`
+#### Test Existing Build (on failure only)
+Use the Test-OpenSSHBuild MCP tool when a build fails:
+- **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
 - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
 ## Compilation Error Resolution
@@ -140,28 +120,33 @@ fatal error C1083: Cannot open source file: 'newfile.c'
 ### Step-by-Step Error Resolution
 
 #### AI Agent Workflow:
-1. **Attempt initial build using MCP tool**
-   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
-   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
-2. **Review structured error output** from Build-OpenSSH tool
-3. **Categorize error types** (preprocessor, Windows compatibility, build system)
-4. **Apply appropriate resolution strategy** (see error categories above)
-5. **Rebuild and verify** using Build-OpenSSH MCP tool again
-6. **Commit fixes with detailed message**
+1. **Run the build**
+   - Use: **Start-OpenSSHBuild** — `mcp_openssh-server_Start_OpenSSHBuild` with `Configuration` and `Architecture`.
+2. **If build succeeded**, skip log parsing and proceed.
+3. **If build failed**, **parse errors** using **Test-OpenSSHBuild** — `mcp_openssh-server_Test_OpenSSHBuild`.
+4. **Categorize error types** (preprocessor, Windows compatibility, build system).
+5. **Apply appropriate resolution strategy** (see error categories above) and **rebuild** with Start-OpenSSHBuild.
+6. **Commit fixes with detailed message**.
 
-#### Reading Build Logs and Errors:
-**ALWAYS use the Test-OpenSSHBuild MCP tool to read build logs and parse errors:**
-- **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHBuild`
+#### Reading Build Logs and Errors (on failure only)
+Use the **Test-OpenSSHBuild** MCP tool to read build logs and parse errors **only when the build fails**:
+- **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
 - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
 **Why use this tool:**
 - Automatically locates and parses the build log file
-- Provides structured error output with file paths, line numbers, error codes, and messages
+- Provides structured error output with file paths, codes, and messages
 - Groups errors and warnings for easier analysis
 - Works reliably in MCP context where direct file reading may not be available
 
 **DO NOT** attempt to read log files directly with `Get-Content` or similar commands.
 **DO NOT** try to locate log files manually.
+
+### Build Tools Invocation Policy
+
+- Use `Start-OpenSSHBuild.ps1` to run the build for each chunk/batch.
+- Only if `Start-OpenSSHBuild.ps1` reports the build failed, invoke `Test-OpenSSHBuild.ps1` to parse errors and warnings from the build log.
+- Skip `Test-OpenSSHBuild.ps1` when the build succeeded to avoid unnecessary log parsing.
 
 #### Alternative: Direct MSBuild (Terminal Only)
 Only use this when running directly in a terminal (not via MCP):
@@ -228,19 +213,18 @@ contrib\win32\openssh\
 
 ### Build Verification Using MCP Tools
 ```pwsh
-Use the Build-OpenSSH MCP tool (recommended):
-- **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
+Use the Start-OpenSSHBuild MCP tool (recommended):
+- **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
 - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
-Or test an existing build:
-- **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHBuild`
-- **Parameters**: `Configuration="Release"`, `Architecture="x64"
-**Expected Output:**
-- Success/failure status
-- 14 of 14 artifacts found
+If the build fails, parse errors with:
+- **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
+- **Parameters**: `Configuration="Release"`, `Architecture="x64"`
+**Expected Output (on failure):**
+- Build failure status
 - Parsed errors and warnings
 - Build log location
-
+```
 **Expected Artifacts (14 executables):**
 - ssh.exe, sshd.exe, sshd-auth.exe, sshd-session.exe
 - ssh-agent.exe, ssh-add.exe, ssh-keygen.exe, ssh-keyscan.exe

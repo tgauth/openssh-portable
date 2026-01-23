@@ -53,14 +53,14 @@ The process consists of several interconnected phases:
    # Run prerequisite check via MCP tool
    # MCP Tool Name: mcp_openssh-server_Test_MergePrerequisites
    # Parameters: TargetVersion (required), SkipBaselineBuild (optional)
-   
+
    # Example invocation (replace <VERSION> with target like "V_10_0_P2"):
    # The MCP tool will verify:
    # - Git, PowerShell, Visual Studio installed
    # - Repository remotes configured (origin, upstream, upstream-pwsh)
    # - Target version exists in upstream
    # - Working directory is clean
-   
+
    # Proceed only if tool reports "ALL PREREQUISITES MET"
    ```
 
@@ -68,7 +68,7 @@ The process consists of several interconnected phases:
     ```pwsh
     git config core.editor true
     ```
-    
+
 3. **Create merge branch from current branch:**
    ```pwsh
    git checkout -b merge-v<VERSION>-<DATE>
@@ -78,20 +78,20 @@ The process consists of several interconnected phases:
 ### Perform Merge with Grouped Commits
 4. **Identify merge range and group commits:**
     Use the Get-CommitGroups MCP tool with `-FirstChunkOnly -GroupByCIPresence`
-   
-   **MCP Tool Name**: `mcp_openssh-serve_Get_CommitGroups`
-   
+
+   **MCP Tool Name**: `mcp_openssh-server_Get_CommitGroups`
+
    **Parameters**:
    - `GitHubTag` (string, optional): Start from last merged tag (e.g., "V_10_0_P2")
    - `StartCommit` (string, optional): Start from specific commit SHA
    - `FirstChunkOnly` (boolean): Set to `true`
    - `GroupByCIPresence` (boolean): Set to `true`
-   
+
    **Example for first batch**:
    - Find the last upstream tag in the fork
    - Call tool with `GitHubTag=<last-upstream-tag>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
    - This gets commits ending with any commit that has CI runs (not just successful CI)
-   
+
    **Example output:**
    ```json
    {
@@ -129,9 +129,9 @@ The process consists of several interconnected phases:
        Write-Host "Cherry-picking commit: $commit"
        git cherry-pick $commit
 
-       # Build after every commit so we can attribute failures precisely.
-       # Use MCP Tool: mcp_openssh-serve_Build_OpenSSH
-       # Parameters: Configuration="Release", Architecture="x64"
+    # Build after every commit to attribute failures precisely.
+    # Use MCP Tool: mcp_openssh-server_Start_OpenSSHBuild
+    # Parameters: Configuration="Release", Architecture="x64"
    }
    ```
 
@@ -154,25 +154,25 @@ The process consists of several interconnected phases:
    ```
 
 9. **Build after completing the batch:**
-   Use the Build-OpenSSH MCP tool:
-   - **MCP Tool Name**: `mcp_openssh-serve_Build_OpenSSH`
-   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
-   
-   If build fails:
-   - **Use Test-OpenSSHBuild MCP tool to read the build log and parse errors**:
-     - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHBuild`
+     Use the Start-OpenSSHBuild MCP tool:
+     - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
      - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
-   - **DO NOT** try to read log files directly with `Get-Content` or locate them manually
-   - Fix issues based on parsed error output
-   - Rebuild and verify
-   - Commit any build fixes separately with descriptive messages
+
+     If build fails:
+     - **Use Test-OpenSSHBuild MCP tool to read the build log and parse errors**:
+         - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
+         - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
+     - **DO NOT** try to read log files directly with `Get-Content` or locate them manually
+     - Fix issues based on parsed error output
+     - Rebuild and verify
+     - Commit any build fixes separately with descriptive messages
 
 10. **Validate if batch ended with successful CI:**
     Check the end commit's CI status from Get-CommitGroups output.
     If CI was successful, run validation:
-    - **MCP Tool Name**: `mcp_openssh-serve_Test_OpenSSHFunctionality`
+    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
     - **Parameters**: (use defaults for Release/x64)
-    
+
     If no CI or failed CI, skip validation (build success is sufficient).
 
 11. **Provide summary and get approval:**
