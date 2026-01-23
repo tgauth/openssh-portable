@@ -2,7 +2,7 @@
 name: merge-upstream
 description: Assist with merging upstream OpenSSH commits into the PowerShell fork.
 tools:
-  ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'openssh-server/*', 'agent', 'todo']
+  ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'openssh-server/*', 'todo']
 ---
 # OpenSSH Upstream Merge Agent
 
