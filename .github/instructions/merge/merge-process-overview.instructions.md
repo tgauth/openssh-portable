@@ -112,14 +112,12 @@ The process consists of several interconnected phases:
    - Call tool with `StartCommit=<end-commit-sha>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
    - Continue this process until the upstream's HEAD has been successfully merged
 
-5. **Execute chunked merge (commit-by-commit within the chunk):**
+5. **Execute chunked merge (batch cherry-pick all commits in chunk):**
 
-   **Important:** Even though commits are *grouped* into chunks for planning/CI boundaries, **cherry-pick each commit individually** within the chunk and **build after each commit**. This catches Windows-specific build breaks early and makes it clear which upstream commit introduced a regression.
+   **Important:** Cherry-pick **all commits in the batch** before building. This is more efficient than building after each individual commit. If the build fails, you can identify the problematic commit(s) through git bisect or by examining the build errors.
 
    ```pwsh
-   # For each chunk (start..end), enumerate and cherry-pick commits one at a time.
-   # Then build after EACH commit.
-   #
+   # For each chunk (start..end), cherry-pick all commits in the batch
    # Example for a single chunk:
    $chunkStart = $result.StartCommitFull
    $chunkEnd   = $result.EndCommitFull
@@ -128,11 +126,12 @@ The process consists of several interconnected phases:
    foreach ($commit in $commits) {
        Write-Host "Cherry-picking commit: $commit"
        git cherry-pick $commit
-
-    # Build after every commit to attribute failures precisely.
-    # Use MCP Tool: mcp_openssh-server_Start_OpenSSHBuild
-    # Parameters: Configuration="Release", Architecture="x64"
+       
+       # If conflicts occur, resolve them before continuing to next commit
+       # (see step 7 below for conflict resolution)
    }
+   
+   # After all commits in batch are cherry-picked, proceed to build (step 9)
    ```
 
 7. **Resolve merge conflicts (per commit):**
