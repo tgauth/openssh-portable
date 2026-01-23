@@ -154,6 +154,28 @@ Only use this when running directly in a terminal (not via MCP):
 & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" .\contrib\win32\openssh\Win32-OpenSSH.sln /p:Configuration=Release /p:Platform=x64 /v:detailed
 ```
 
+### Important Note: paths.targets File Modification
+
+**The build process automatically modifies `.\contrib\win32\openssh\paths.targets`** to update SDK version paths based on the currently installed Windows SDK. This is normal and expected behavior.
+
+**Before committing any changes:**
+```pwsh
+# Check if paths.targets was modified by the build
+git status .\contrib\win32\openssh\paths.targets
+
+# If it shows as modified, restore it to a clean state
+git checkout .\contrib\win32\openssh\paths.targets
+```
+
+**Why this happens:**
+- MSBuild automatically updates SDK paths to match your local environment
+- These changes are environment-specific and should not be committed
+- The file will be modified on every build
+
+**AI Agent Workflow:**
+- After completing all build fixes and before final commit, restore paths.targets
+- Only commit actual code changes, not build-generated path updates
+
 ## Project File Management
 
 ### Understanding the Project Structure
