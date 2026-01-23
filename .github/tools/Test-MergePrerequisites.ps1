@@ -251,11 +251,6 @@ try {
     if ($result.Success) {
         Write-Host "✓ ALL PREREQUISITES MET" -ForegroundColor Green
         Write-Host "`nYou are ready to begin the merge process:" -ForegroundColor White
-        Write-Host "  0. (Optional) Verify baseline build: mcp_openssh-server_Test_OpenSSHBuild" -ForegroundColor Gray
-        Write-Host "  1. Create merge branch: git checkout -b merge-$TargetVersion-$(Get-Date -Format 'yyyyMMdd')" -ForegroundColor Gray
-        Write-Host "  2. Use Get-CommitGroups tool to identify first batch of commits" -ForegroundColor Gray
-        Write-Host "  3. Begin cherry-picking commits from first batch" -ForegroundColor Gray
-
         $result.Message = "All prerequisites met. Ready to start merge."
     } else {
         Write-Host "✗ PREREQUISITES NOT MET" -ForegroundColor Red
