@@ -82,7 +82,7 @@ try {
     Write-Host ""
 
     # Step 1: Verify Git
-    Write-Host "[1/5] Checking Git installation..." -ForegroundColor Cyan
+    Write-Host "[1/6] Checking Git installation..." -ForegroundColor Cyan
     try {
         $gitPath = Get-Command git -ErrorAction SilentlyContinue
         if ($gitPath) {
@@ -98,7 +98,7 @@ try {
     }
 
     # Step 2: Verify PowerShell version
-    Write-Host "`n[2/5] Checking PowerShell version..." -ForegroundColor Cyan
+    Write-Host "`n[2/6] Checking PowerShell version..." -ForegroundColor Cyan
     $psVersion = $PSVersionTable.PSVersion
     if ($psVersion.Major -ge 5) {
         Write-Host "  ✓ PowerShell $($psVersion.ToString()) (>= 5.0)" -ForegroundColor Green
@@ -108,7 +108,7 @@ try {
     }
 
     # Step 3: Verify Visual Studio
-    Write-Host "`n[3/5] Checking Visual Studio installation..." -ForegroundColor Cyan
+    Write-Host "`n[3/6] Checking Visual Studio installation..." -ForegroundColor Cyan
     $msBuildPaths = @(
         "${env:ProgramFiles}\Microsoft Visual Studio\2022\*\MSBuild\Current\Bin\MSBuild.exe",
         "${env:ProgramFiles}\Microsoft Visual Studio\2019\*\MSBuild\Current\Bin\MSBuild.exe",
@@ -133,7 +133,7 @@ try {
     }
 
     # Step 4: Verify repository remotes
-    Write-Host "`n[4/5] Checking repository remotes..." -ForegroundColor Cyan
+    Write-Host "`n[4/6] Checking repository remotes..." -ForegroundColor Cyan
     if ($result.GitInstalled) {
         try {
             $gitConfigPath = Join-Path $repoRoot ".git\config"
@@ -169,7 +169,7 @@ try {
     }
 
     # Step 5: Verify target version exists
-    Write-Host "`n[5/5] Checking target version exists..." -ForegroundColor Cyan
+    Write-Host "`n[5/6] Checking target version exists..." -ForegroundColor Cyan
     if ($result.GitInstalled -and $result.RemotesConfigured) {
         try {
             # Check if tag/branch ref exists in .git directory
@@ -195,6 +195,44 @@ try {
         Write-Host "  ⊘ Skipped (prerequisites not met)" -ForegroundColor Yellow
     }
 
+    # Step 6: Verify working directory is clean
+    Write-Host "`n[6/6] Checking working directory status..." -ForegroundColor Cyan
+    if ($result.GitInstalled) {
+        try {
+            # Use Start-Job to run git status --porcelain
+            $job = Start-Job -ScriptBlock {
+                param($repoPath)
+                Set-Location $repoPath
+                git status --porcelain
+            } -ArgumentList $repoRoot
+            
+            $jobResult = Wait-Job $job -Timeout 10
+            if ($jobResult) {
+                $statusOutput = Receive-Job $job
+                Remove-Job $job -Force
+                
+                if ([string]::IsNullOrWhiteSpace($statusOutput)) {
+                    $result.WorkingDirClean = $true
+                    Write-Host "  ✓ Working directory is clean" -ForegroundColor Green
+                } else {
+                    $result.Issues += "Working directory has uncommitted changes"
+                    Write-Host "  ✗ Working directory has uncommitted changes:" -ForegroundColor Red
+                    $statusOutput | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+                    Write-Host "    Hint: Commit or stash changes before starting merge" -ForegroundColor Yellow
+                }
+            } else {
+                Remove-Job $job -Force
+                $result.Issues += "Git status check timed out"
+                Write-Host "  ✗ Git status check timed out" -ForegroundColor Red
+            }
+        } catch {
+            $result.Issues += "Error checking working directory: $($_.Exception.Message)"
+            Write-Host "  ✗ Error checking working directory status" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "  ⊘ Skipped (Git not available)" -ForegroundColor Yellow
+    }
+
     # Final evaluation
     Write-Host "`n========================================" -ForegroundColor Cyan
     Write-Host "PREREQUISITE CHECK SUMMARY" -ForegroundColor Cyan
@@ -204,7 +242,8 @@ try {
         $result.GitInstalled,
         $result.VSInstalled,
         $result.RemotesConfigured,
-        $result.TargetExists
+        $result.TargetExists,
+        $result.WorkingDirClean
     )
 
     $result.Success = ($criticalChecks | Where-Object { $_ -eq $false }).Count -eq 0
