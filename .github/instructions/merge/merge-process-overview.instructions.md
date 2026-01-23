@@ -69,11 +69,19 @@ The process consists of several interconnected phases:
     git config core.editor true
     ```
 
-3. **Create merge branch from current branch:**
+3. **Create merge branch (if not already created):**
    ```pwsh
+   # Check if branch already exists
+   git rev-parse --verify merge-v<VERSION>-<DATE> 2>$null
+   
+   # If it doesn't exist, create it
    git checkout -b merge-v<VERSION>-<DATE>
    # Example: merge-v9.8-20241010
+   
+   # If it already exists, switch to it
+   git checkout merge-v<VERSION>-<DATE>
    ```
+   **Note:** The Test-MergePrerequisites tool will suggest the branch name. Create it once and reuse it throughout the merge process.
 
 ### Perform Merge with Grouped Commits
 4. **Identify merge range and group commits:**
@@ -164,7 +172,11 @@ The process consists of several interconnected phases:
      - **DO NOT** try to read log files directly with `Get-Content` or locate them manually
      - Fix issues based on parsed error output
      - Rebuild and verify
-     - Commit any build fixes separately with descriptive messages
+     - **CRITICAL: Before committing, restore paths.targets**:
+       ```pwsh
+       git checkout .\contrib\win32\openssh\paths.targets
+       ```
+     - Commit any build fixes separately with descriptive messages (only actual code changes)
 
 10. **Validate if batch ended with successful CI:**
     Check the end commit's CI status from Get-CommitGroups output.

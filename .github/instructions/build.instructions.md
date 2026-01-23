@@ -126,7 +126,11 @@ fatal error C1083: Cannot open source file: 'newfile.c'
 3. **If build failed**, **parse errors** using **Test-OpenSSHBuild** — `mcp_openssh-server_Test_OpenSSHBuild`.
 4. **Categorize error types** (preprocessor, Windows compatibility, build system).
 5. **Apply appropriate resolution strategy** (see error categories above) and **rebuild** with Start-OpenSSHBuild.
-6. **Commit fixes with detailed message**.
+6. **CRITICAL: Before committing, restore paths.targets**:
+   ```pwsh
+   git checkout .\contrib\win32\openssh\paths.targets
+   ```
+7. **Commit fixes with detailed message** (only actual code changes, not paths.targets).
 
 #### Reading Build Logs and Errors (on failure only)
 Use the **Test-OpenSSHBuild** MCP tool to read build logs and parse errors **only when the build fails**:
@@ -172,9 +176,14 @@ git checkout .\contrib\win32\openssh\paths.targets
 - These changes are environment-specific and should not be committed
 - The file will be modified on every build
 
-**AI Agent Workflow:**
-- After completing all build fixes and before final commit, restore paths.targets
-- Only commit actual code changes, not build-generated path updates
+**AI Agent Workflow (CRITICAL):**
+1. **ALWAYS restore paths.targets before committing**:
+   ```pwsh
+   # This MUST be done before every commit
+   git checkout .\contrib\win32\openssh\paths.targets
+   ```
+2. Only commit actual code changes, not build-generated path updates
+3. Verify with `git status` that paths.targets is not staged before committing
 
 ## Project File Management
 
