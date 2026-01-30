@@ -199,6 +199,14 @@ FUNCTION sync_build_system():
     FOR EACH source_file IN makefile_changes.new_source_files:
         target_project = determine_target_project(source_file)
         add_source_to_project(target_project, source_file)
+
+// CRITICAL: When modifying .vcxproj or .sln files programmatically,
+// ALWAYS use Windows line endings (\r\n) instead of Unix (\n).
+// This prevents Git from showing the entire file as modified.
+FUNCTION add_source_to_project(project_file, source_file):
+    // Example: Use \r\n for line endings
+    new_line = f"    <ClCompile Include=\"{source_file}\" />\r\n"
+    insert_into_project_file(project_file, new_line)
 ```
 
 ## Common Conflict Patterns
@@ -209,9 +217,10 @@ FUNCTION sync_build_system():
 - **File permissions** → Adapt to Windows ACL model
 
 ### Build System Changes
-- **Makefile additions** → Update Visual Studio project files
+- **Makefile additions** → Update Visual Studio project files (use `\r\n` line endings)
 - **New dependencies** → Check Windows compatibility
 - **Compiler flags** → Translate to MSVC equivalents
+- **Project file edits** → Maintain Windows line endings (`\r\n`) to avoid Git diffs
 
 ### Configuration Changes
 - **New config options** → Add to `./contrib/win32/openssh/config.h.vs`

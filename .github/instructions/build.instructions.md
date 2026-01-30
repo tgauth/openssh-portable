@@ -110,6 +110,8 @@ fatal error C1083: Cannot open source file: 'newfile.c'
    <!-- Add to appropriate .vcxproj file -->
    <ClCompile Include="newfile.c" />
    ```
+   
+   **Important:** Visual Studio project files (`.vcxproj`) use Windows-style line endings (`\r\n`). When programmatically adding lines to these files, ensure you use `\r\n` instead of just `\n` to maintain consistency with the existing file format. This prevents Git from showing the entire file as changed.
 
 4. **Update solution if new binaries added:**
    ```
@@ -239,6 +241,13 @@ contrib\win32\openssh\
    ```
    # Edit Win32-OpenSSH.sln to include new project
    ```
+
+**Important Note on Line Endings:**
+Both `.vcxproj` and `.sln` files use Windows-style line endings (`\r\n`). When programmatically modifying these files:
+- Use `\r\n` instead of `\n` when inserting new lines
+- Maintain consistent line endings to avoid Git showing spurious changes
+- Example in PowerShell: `$newLine = "<ClCompile Include=`"newfile.c`" />`r`n"`
+- Example in Python: `new_line = "<ClCompile Include=\"newfile.c\" />\r\n"`
 
 ## Validation and Testing
 

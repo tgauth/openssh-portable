@@ -79,7 +79,12 @@ When merging changes to `ssh-agent.c` or related agent files from upstream:
    - Flag for Windows team review
    - May require significant redesign work
 
-3. **Do NOT**:
+3. **New files** (additional agent-related source files):
+   - **Not all new upstream files need to be ported** to the Windows ssh-agent
+   - Evaluate whether the functionality is relevant to the Windows implementation
+   - If not applicable, document the decision and skip porting
+
+4. **Do NOT**:
    - Directly apply upstream ssh-agent patches to Windows version
    - Assume one-to-one code correspondence
    - Merge without understanding Windows implementation differences
