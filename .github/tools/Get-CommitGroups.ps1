@@ -254,21 +254,22 @@ try {
     $allCommits = @($comparison.commits)
 
     # If we hit the 250 commit limit, we need to get the actual first 250 commits
-    # by using the oldest commit from this batch as the end point
-    if ($comparison.total_commits -gt 250) {
+    # by iteratively narrowing the range until we get 250 or fewer commits
+    while ($comparison.total_commits -gt 250) {
         Write-Host "Warning: Total commits ($($comparison.total_commits)) exceeds API limit (250)." -ForegroundColor Yellow
-        Write-Host "Fetching first 250 commits by using oldest commit as endpoint..." -ForegroundColor Cyan
+        Write-Host "Fetching first 250 commits by narrowing the range..." -ForegroundColor Cyan
 
-        # Get the oldest commit SHA from the initial batch (first in chronological order)
+        # Get the oldest commit SHA from the current batch (first in chronological order)
+        # Since the batch is limited to 250, this is approximately the 250th commit from start
         $oldestCommitSha = $allCommits[0].sha
 
-        # Now compare from start to this oldest commit to get the actual first 250
+        # Now compare from start to this oldest commit to narrow down the range
         $limitedCompareUrl = "$apiBase/compare/${startCommitSha}...${oldestCommitSha}"
         Write-Host "Comparing $startCommitSha...$oldestCommitSha" -ForegroundColor Gray
-        $limitedComparison = Invoke-RestMethod -Uri $limitedCompareUrl -Headers (Get-GitHubHeaders)
+        $comparison = Invoke-RestMethod -Uri $limitedCompareUrl -Headers (Get-GitHubHeaders)
 
-        $allCommits = @($limitedComparison.commits)
-        Write-Host "Fetched $($allCommits.Count) commits in the corrected range" -ForegroundColor Green
+        $allCommits = @($comparison.commits)
+        Write-Host "Narrowed to $($comparison.total_commits) total commits ($($allCommits.Count) returned)" -ForegroundColor Green
     }
 
     $startRef = if ($GitHubTag) { "tag $GitHubTag" } else { "commit $StartCommit" }
