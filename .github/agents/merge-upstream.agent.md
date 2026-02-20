@@ -29,6 +29,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - **Parameters**:
      - `GitHubTag` (string, optional): GitHub tag to start from (e.g., "V_10_0_P2")
      - `StartCommit` (string, optional): Commit SHA to start from
+     - `EndCommit` (string, optional): Commit SHA to end at (default: HEAD - most recent upstream commit)
      - `FirstChunkOnly` (boolean, optional): Stop after finding first chunk
      - `GroupByCIPresence` (boolean, optional): Group by CI presence instead of CI success
    - **Recommended Usage**: Always use `-FirstChunkOnly -GroupByCIPresence` for incremental merging
@@ -92,7 +93,8 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 1. **Run prerequisite verification via MCP tool:**
    - **MCP Tool Name**: `mcp_openssh-server_Test_MergePrerequisites`
    - **Parameters**:
-     - `TargetVersion` (string, required): Upstream version/tag to merge (e.g., "V_10_0_P2")
+     - `TargetVersion` (string, required): Upstream version/tag to start from (e.g., "V_10_0_P2")
+     - `EndCommit` (string, optional): Commit SHA to end at (default: HEAD - most recent upstream commit)
      - `SkipBaselineBuild` (boolean, optional): Skip baseline build check (default: false)
 
    This single tool verifies:
@@ -126,8 +128,9 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 1. **Get first commit batch** using Get-CommitGroups MCP tool:
    - **MCP Tool Name**: `mcp_openssh-server_Get_CommitGroups`
    - **Parameters**:
-     - For first batch: `GitHubTag="V_10_0_P2"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
-     - For subsequent batches: `StartCommit="<previous_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+     - For first batch: `GitHubTag="V_10_0_P2"`, `EndCommit="<target_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+     - For subsequent batches: `StartCommit="<previous_end_commit>"`, `EndCommit="<target_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - **Note**: If `EndCommit` is not specified, the tool will merge up to the most recent upstream commit (HEAD)
 
    **The tool returns structured data:**
    ```json
@@ -257,14 +260,14 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 **Objective:** Process remaining commit groups until merge is complete
 
 **Steps:**
-1. **Return to Phase 2** with `-StartCommit` set to previous batch's end commit
+1. **Return to Phase 2** with `-StartCommit` set to previous batch's end commit and `-EndCommit` set to target end commit
 2. **Repeat Phases 2-4** for each batch:
-   - Get next batch with Get-CommitGroups
+   - Get next batch with Get-CommitGroups (passing both StartCommit and EndCommit)
    - Cherry-pick commits
    - Build (mandatory)
    - Validate (if batch ends with successful CI)
    - Summarize and get approval
-3. **Continue** until all target commits are merged or HEAD is reached
+3. **Continue** until the target end commit is reached (or HEAD if no end commit was specified)
 4. **Perform final comprehensive validation:**
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**: (use defaults for Release/x64)

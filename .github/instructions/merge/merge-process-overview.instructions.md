@@ -78,12 +78,14 @@ The process consists of several interconnected phases:
    **Parameters**:
    - `GitHubTag` (string, optional): Start from last merged tag (e.g., "V_10_0_P2")
    - `StartCommit` (string, optional): Start from specific commit SHA
+   - `EndCommit` (string, optional): End at specific commit SHA (default: HEAD - most recent upstream commit)
    - `FirstChunkOnly` (boolean): Set to `true`
    - `GroupByCIPresence` (boolean): Set to `true`
 
    **Example for first batch**:
    - Find the last upstream tag in the fork
-   - Call tool with `GitHubTag=<last-upstream-tag>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - Call tool with `GitHubTag=<last-upstream-tag>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - Omit `EndCommit` to merge all commits up to HEAD (most recent upstream commit)
    - This gets commits ending with any commit that has CI runs (not just successful CI)
 
    **Example output:**
@@ -103,8 +105,8 @@ The process consists of several interconnected phases:
    Display batch details for verification, then proceed with cherry-picking.
 
    **After completing steps below, get next batch**:
-   - Call tool with `StartCommit=<end-commit-sha>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
-   - Continue this process until the upstream's HEAD has been successfully merged
+   - Call tool with `StartCommit=<end-commit-sha>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - Continue this process until the target end commit is reached (or HEAD if no end commit specified)
 
 5. **Execute chunked merge (batch cherry-pick all commits in chunk):**
 

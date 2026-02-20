@@ -4,6 +4,7 @@ Assist with merging the commits from upstream into this branch starting from the
 
 Provide the following when you invoke this prompt:
 - Start ref (tag or commit) — REQUIRED (e.g., `upstream/V_9_8_P1` or a commit SHA)
+- End ref (commit) — OPTIONAL (default: HEAD - most recent upstream commit)
 - Upstream remote — optional (default: `upstream`)
 - Windows fork remote — optional (default: `upstream-pwsh`)
 - Target branch — optional (default: current branch)
@@ -24,6 +25,8 @@ Expected outputs per batch:
 
 Quick start examples:
 - "Merge from tag `upstream/V_9_8_P1` into my current branch."
+- "Merge from tag `upstream/V_9_8_P1` to commit `a1b2c3d` into my current branch."
 - "Merge starting at commit `3a1b2c3`, upstream remote `upstream`, target current branch."
 
 If the Start ref is not provided, ask for it before proceeding.
+If the End ref is not provided, merging will continue to HEAD (most recent upstream commit).

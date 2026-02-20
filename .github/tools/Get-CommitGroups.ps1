@@ -21,8 +21,13 @@
 
 .PARAMETER StartCommit
     The commit SHA to start from (e.g., "6fb728df50c1afd338cb0223a84ce24579577eff").
-    Cannot be used with -GitHubTag. The script will find commits after this commit up to HEAD.
+    Cannot be used with -GitHubTag. The script will find commits after this commit up to EndCommit (or HEAD if not specified).
     This is typically used when continuing from a previously merged commit.
+
+.PARAMETER EndCommit
+    The commit SHA to end at (e.g., "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0").
+    If not specified, defaults to HEAD (most recent upstream commit).
+    This allows merging up to a specific commit rather than always merging to HEAD.
 
 .PARAMETER FirstChunkOnly
     When specified, the script stops after finding the first chunk with a successful CI commit
@@ -66,6 +71,12 @@
     Finds the first batch of commits after the V_10_0_P2 tag that ends with any commit
     that has CI runs (regardless of success or failure).
 
+.EXAMPLE
+    .\Get-CommitGroups.ps1 -StartCommit "6fb728df50c1afd338cb0223a84ce24579577eff" -EndCommit "a1b2c3d4e5f6" -FirstChunkOnly
+
+    Finds the first batch of commits between the specified start and end commits.
+    Useful for merging a specific range rather than all commits up to HEAD.
+
 .NOTES
     - Requires internet access to query GitHub API
     - Set GITHUB_TOKEN environment variable for authenticated API access (5,000 requests/hour)
@@ -85,6 +96,9 @@ param(
 
     [Parameter(Mandatory=$false)]
     [string]$StartCommit,
+
+    [Parameter(Mandatory=$false)]
+    [string]$EndCommit,
 
     [Parameter(Mandatory=$false)]
     [switch]$FirstChunkOnly,
@@ -242,11 +256,12 @@ try {
     $page = 1
     $perPage = 250  # Compare API returns max 250 commits per page
 
-    Write-Host "Fetching commits from $startCommitSha...HEAD" -ForegroundColor Gray
+    $endRef = if ($EndCommit) { $EndCommit } else { "HEAD" }
+    Write-Host "Fetching commits from $startCommitSha...$endRef" -ForegroundColor Gray
 
     # The Compare API doesn't support pagination, so we need to use commits API instead
     # to get commits in the correct range with proper pagination
-    $compareUrl = "$apiBase/compare/${startCommitSha}...HEAD"
+    $compareUrl = "$apiBase/compare/${startCommitSha}...$endRef"
     $comparison = Invoke-RestMethod -Uri $compareUrl -Headers (Get-GitHubHeaders)
 
     # The Compare API returns commits - need to verify order
