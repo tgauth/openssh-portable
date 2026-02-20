@@ -47,6 +47,55 @@ Use the Test-OpenSSHBuild MCP tool when a build fails:
 - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
 - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
+## Compiler Warning Policy
+
+### Overview
+All new compiler warnings introduced during the merge process must be reported to users and require approval before proceeding. This ensures code quality is maintained and potential issues are not overlooked.
+
+### Baseline Establishment
+1. **Before starting the merge**, establish a baseline warning count:
+   - Run Test-OpenSSHBuild on the current branch (before any merge commits)
+   - Document the total warning count and warning categories
+   - Store this as the baseline for comparison
+
+2. **After each build during merge**, compare warnings against baseline:
+   - Run Test-OpenSSHBuild after every successful build (not just failures)
+   - Compare current warning count to baseline
+   - Identify any new warnings introduced
+
+### Warning Categorization
+Attempt to categorize warnings to help users make informed decisions:
+
+**Common Warning Categories:**
+- **Deprecated APIs**: Use of functions/APIs marked as deprecated
+- **Type Conversions**: Implicit type conversions that may lose data
+- **Unused Variables/Functions**: Declared but unused code elements
+- **Potential Bugs**: Logic issues that may cause runtime problems
+- **Security-Related**: Potential security vulnerabilities (buffer overruns, etc.)
+- **Platform-Specific**: Windows-specific compatibility warnings
+
+**Note:** Categorization helps users make decisions, but **all new warnings require user approval regardless of predicted severity**.
+
+### User Approval Requirement
+**Critical Rule**: No threshold - every new warning requires user input.
+
+1. **When new warnings are detected:**
+   - Report warning count delta (baseline vs current)
+   - List each new warning with:
+     - File and line number
+     - Warning code and message
+     - Attempted category classification
+   - Request user decision: fix warnings or proceed as-is
+
+2. **User must explicitly approve:**
+   - Fixing warnings before continuing
+   - Proceeding with warnings (acknowledging they will remain)
+   - Do NOT automatically proceed if new warnings appear
+
+3. **Update baseline if user approves proceeding:**
+   - If user approves proceeding with new warnings, update baseline
+   - This prevents re-reporting the same warnings in subsequent batches
+
 ## Compilation Error Resolution
 
 ### Common Error Categories
@@ -151,8 +200,12 @@ Use the **Test-OpenSSHBuild** MCP tool to read build logs and parse errors **onl
 ### Build Tools Invocation Policy
 
 - Use `Start-OpenSSHBuild.ps1` to run the build for each chunk/batch.
-- Only if `Start-OpenSSHBuild.ps1` reports the build failed, invoke `Test-OpenSSHBuild.ps1` to parse errors and warnings from the build log.
-- Skip `Test-OpenSSHBuild.ps1` when the build succeeded to avoid unnecessary log parsing.
+- **ALWAYS invoke `Test-OpenSSHBuild.ps1` after every build** (success or failure):
+  - On build failure: Parse errors and warnings to fix issues
+  - On build success: Parse warnings to compare against baseline
+- Compare warning count against established baseline
+- If new warnings detected, report to user and request approval before proceeding
+- Do NOT skip `Test-OpenSSHBuild.ps1` even when build succeeds - warning checks are mandatory.
 
 #### Alternative: Direct MSBuild (Terminal Only)
 Only use this when running directly in a terminal (not via MCP):

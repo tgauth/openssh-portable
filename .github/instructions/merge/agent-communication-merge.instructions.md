@@ -44,6 +44,35 @@ Found X compilation errors:
 I'll resolve these errors now.
 ```
 
+#### Success with New Warnings Scenario:
+**MUST use this format when build succeeds but new warnings are detected.**
+
+```
+Build completed successfully. All 14 executables were created.
+
+However, new compiler warnings have been introduced:
+
+Baseline: X warnings → Current: Y warnings (ΔZ new warnings)
+
+New Warnings Detected:
+
+**Deprecated APIs (2):**
+- [auth.c] (Line 145): C4996 - 'strcpy': This function may be unsafe. Consider using strcpy_s instead.
+- [sshd.c] (Line 302): C4996 - 'GetVersion': was declared deprecated
+
+**Type Conversions (1):**
+- [channels.c] (Line 89): C4244 - Conversion from 'size_t' to 'int', possible loss of data
+
+**Analysis:**
+These warnings appear to be introduced by upstream changes. The deprecated API warnings may require Windows-specific alternatives, and the type conversion should be reviewed for potential data loss.
+
+How would you like to proceed?
+1. Fix these warnings before continuing
+2. Proceed with warnings (will update baseline)
+
+Please advise.
+```
+
 ### 2. Test-OpenSSHBuild Tool Output
 
 **MUST use this format when reporting build error analysis.**
@@ -65,12 +94,44 @@ Error Categories:
 - Build system inconsistencies: X
 ```
 
-#### When Build Succeeded:
+#### When Build Succeeded with No New Warnings:
 ```
-No need to analyze build errors - the build completed successfully.
+Build analysis complete:
+
+Compilation Errors: 0
+Warnings: X (no change from baseline)
+
+No new warnings introduced. Build is clean.
 ```
 
-**Note:** Only invoke Test-OpenSSHBuild when Start-OpenSSHBuild reports failure.
+#### When Build Succeeded with New Warnings:
+```
+Build analysis complete:
+
+Compilation Errors: 0
+
+Warnings Comparison:
+- Baseline: X warnings
+- Current: Y warnings
+- New warnings: Z
+
+New Warnings by Category:
+
+**Deprecated APIs (2):**
+- [auth.c] (Line 145): C4996 - 'strcpy': This function may be unsafe
+- [sshd.c] (Line 302): C4996 - 'GetVersion': was declared deprecated
+
+**Type Conversions (1):**
+- [channels.c] (Line 89): C4244 - Conversion from 'size_t' to 'int'
+
+**Potential Bugs (0)**
+**Security-Related (0)**
+**Platform-Specific (0)**
+
+These new warnings require user approval before proceeding.
+```
+
+**Note:** ALWAYS invoke Test-OpenSSHBuild after every build to check for warnings, not just on failure.
 
 ### 3. Test-OpenSSHFunctionality Tool Output
 

@@ -153,18 +153,30 @@ The process consists of several interconnected phases:
      - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
      - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
-     If build fails:
-     - **Use Test-OpenSSHBuild MCP tool to read the build log and parse errors**:
+     **ALWAYS check warnings after build (success or failure):**
+     - **Use Test-OpenSSHBuild MCP tool to parse errors and warnings**:
          - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
          - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
      - **DO NOT** try to read log files directly with `Get-Content` or locate them manually
+     
+     If build failed:
      - Fix issues based on parsed error output
      - Rebuild and verify
-     - **CRITICAL: Before committing, restore paths.targets**:
-       ```pwsh
-       git checkout .\contrib\win32\openssh\paths.targets
-       ```
-     - Commit any build fixes separately with descriptive messages (only actual code changes)
+     
+     If build succeeded:
+     - Compare warnings against baseline established in Phase 1
+     - If new warnings detected:
+       - Categorize warnings (deprecated APIs, type conversions, potential bugs, etc.)
+       - Report to user with warning details and categories
+       - Request user decision: fix warnings or proceed
+       - Wait for user approval before continuing
+       - If user approves proceeding, update baseline to include new warnings
+     
+     **CRITICAL: Before committing, restore paths.targets**:
+     ```pwsh
+     git checkout .\contrib\win32\openssh\paths.targets
+     ```
+     Commit any build fixes separately with descriptive messages (only actual code changes)
 
 10. **Validate if batch ended with successful CI:**
     Check the end commit's CI status from Get-CommitGroups output.

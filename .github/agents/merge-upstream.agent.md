@@ -110,7 +110,14 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Tool must display "ALL PREREQUISITES MET"
    - If tool fails, fix reported issues before continuing
 
-3. **Create merge branch:**
+3. **Establish baseline warning count:**
+   - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
+   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
+   - Parse and document the current warning count and categories
+   - This baseline will be used to detect new warnings introduced during merge
+   - Store baseline for comparison after each build
+
+4. **Create merge branch:**
    ```pwsh
    git checkout -b merge-v<VERSION>-<YYYYMMDD>
    # Example: git checkout -b merge-v10.0P2-20260109
@@ -118,6 +125,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 **Success Criteria:**
 - Prerequisite tool reports all checks passed
+- Baseline warning count established and documented
 - Merge branch created
 - Ready to begin Phase 2 (cherry-picking first batch)
 

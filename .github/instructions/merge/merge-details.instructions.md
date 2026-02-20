@@ -265,11 +265,20 @@ FUNCTION automated_build_fix():
         // Always start with Start-OpenSSHBuild.ps1
         build_result = start_openssh_build(Configuration="Release", Architecture="x64")
 
+        // ALWAYS invoke Test-OpenSSHBuild.ps1 to check warnings (success or failure)
+        test_result = test_openssh_build(Configuration="Release", Architecture="x64", LogFile=build_result.log)
+        
         IF build_result.success:
+            // Check for new warnings against baseline
+            new_warnings = compare_warnings_to_baseline(test_result.warnings, baseline_warnings)
+            IF new_warnings.count > 0:
+                categorized_warnings = categorize_warnings(new_warnings)
+                request_user_approval(categorized_warnings)
+                // Wait for user decision: fix warnings or proceed
             RETURN SUCCESS
 
-        // Only invoke Test-OpenSSHBuild.ps1 when build failed
-        errors = test_openssh_build(Configuration="Release", Architecture="x64", LogFile=build_result.log)
+        // Build failed - parse errors
+        errors = test_result.errors
         fixes_applied = []
 
         FOR EACH error IN errors:
@@ -303,8 +312,12 @@ FUNCTION determine_fix_strategy(error):
 ### Build Tools Invocation Policy
 
 - Use `Start-OpenSSHBuild.ps1` to run the build for each chunk/batch.
-- Only if `Start-OpenSSHBuild.ps1` reports the build failed, invoke `Test-OpenSSHBuild.ps1` to parse errors and warnings from the build log.
-- Skip `Test-OpenSSHBuild.ps1` when the build succeeded to avoid unnecessary log parsing.
+- **ALWAYS invoke `Test-OpenSSHBuild.ps1` after every build** (success or failure):
+  - On build failure: Parse errors and warnings to fix issues
+  - On build success: Parse warnings to compare against baseline
+- Compare warning count against established baseline
+- If new warnings detected, report to user with categorization and request approval before proceeding
+- Do NOT skip `Test-OpenSSHBuild.ps1` even when build succeeds - warning checks are mandatory.
 
 ## Testing Automation Framework
 
