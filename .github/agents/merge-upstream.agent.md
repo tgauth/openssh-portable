@@ -2,7 +2,7 @@
 name: merge-upstream
 description: Assist with merging upstream OpenSSH commits into the PowerShell fork.
 tools:
-  ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'openssh-server/*', 'todo']
+  ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'openssh-server/*', 'todo']
 ---
 # OpenSSH Upstream Merge Agent
 
@@ -53,7 +53,22 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
      - `NoCleanup` (boolean, optional): Skip cleanup for debugging (default: false)
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
-4. **Git** - Version control operations
+4. **Get-ConflictContext MCP Tool** - Three-way conflict context for high-complexity conflicts
+   - **MCP Tool Name**: `mcp_openssh-server_Get_ConflictContext`
+   - **When to use**: ONLY when `assess_conflict_complexity()` returns `HIGH_COMPLEXITY`
+   - **Parameters**:
+     - `FilePath` (string, required): Path to the conflicted file relative to the repository root
+     - `CommitHash` (string, required): The upstream commit SHA being cherry-picked that caused the conflict
+     - `ContextLines` (integer, optional): Lines of context above/below each hunk match (default: 40)
+     - `MaxTotalLines` (integer, optional): Maximum total lines across all three versions and all hunks (default: 150 — ~50 per version). Increase if broader context is needed.
+   - **What it returns**: For each hunk in the upstream diff — excerpts from three versions:
+     - `UpstreamBefore`: The file as it existed in upstream *before* this commit
+     - `UpstreamAfter`: The file in upstream *after* this commit
+     - `OurFork`: The corresponding region in our fork (located by content-anchor matching, not line numbers)
+   - **Budget**: `max(10, floor(MaxTotalLines / 3 / hunkCount))` lines per version per hunk; a warning is added to `Message` if the 10-line minimum floor is applied
+   - **If tool unavailable**: Fall back to reading the conflicted file directly and using `Invoke_Git Operation="Show"` and `Operation="Diff"` to gather context manually
+
+5. **Git** - Version control operations
    - Cherry-pick: `git cherry-pick start_commit^..end_commit` (inclusive)
    - Status: `git status`
    - Remotes: `origin`, `upstream-pwsh`, `upstream`

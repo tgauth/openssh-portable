@@ -418,6 +418,44 @@ FUNCTION assess_conflict_complexity(conflicts):
         RETURN "LOW_COMPLEXITY"
 ```
 
+### Using Get-ConflictContext for High-Complexity Conflicts
+
+When `assess_conflict_complexity()` returns `HIGH_COMPLEXITY`, invoke the `Get-ConflictContext` MCP tool **before** attempting to edit the file. It provides three-way context anchored to the actual changed regions, accounting for the fact that our fork's line numbers differ from upstream.
+
+```pseudocode
+FUNCTION resolve_conflict(file_path, conflict_content, cherry_pick_commit):
+    complexity = assess_conflict_complexity([{file: file_path, content: conflict_content}])
+
+    IF complexity == "HIGH_COMPLEXITY":
+        // Fetch three-way context before editing
+        // MCP Tool: mcp_openssh-server_Get_ConflictContext
+        // FilePath=file_path, CommitHash=cherry_pick_commit
+        //
+        // If the default MaxTotalLines=150 is insufficient (e.g., many hunks or
+        // a large function), re-invoke with a higher value such as MaxTotalLines=300.
+        context = get_conflict_context(file_path, cherry_pick_commit)
+
+        FOR EACH hunk IN context.Hunks:
+            // Use all three excerpts to understand:
+            //   hunk.UpstreamBefore — what the upstream code looked like before the commit
+            //   hunk.UpstreamAfter  — what the upstream commit changed it to
+            //   hunk.OurFork        — what our fork has in the corresponding region
+            //                        (Note field explains how the region was located)
+            determine_resolution_strategy(hunk)
+
+        // Check Message for budget warnings and increase MaxTotalLines if needed
+        IF context.Message contains "minimum floor":
+            re_invoke_with_larger_budget(file_path, cherry_pick_commit)
+
+    RETURN apply_resolution_strategy(file_path, conflict_content)
+```
+
+**Key behaviours of the tool:**
+- **Binary files**: Returns `IsBinary=true` and no excerpts — resolve manually.
+- **Unavailable versions**: A version returns `Lines=null` with a `Note` explaining why (e.g. file newly added by this commit).
+- **Fork region location**: Uses sliding-window content matching against the diff's unchanged context lines. Falls back to the function name from the `@@` hunk header if the anchor score is too low. The `Note` field on each `OurFork` excerpt describes which strategy was used.
+- **Budget warning**: If `MaxTotalLines` is too small to give each hunk 10 lines per version, a warning appears in `Message` — increase `MaxTotalLines` and re-invoke.
+
 ## Anti-Patterns to Avoid
 
 ### ❌ Don't Remove Upstream Code
