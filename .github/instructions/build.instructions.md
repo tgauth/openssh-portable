@@ -143,8 +143,9 @@ fatal error C1083: Cannot open source file: 'newfile.c'
 
 **AI Agent Resolution Process:**
 1. **Check Makefile changes:**
-   ```bash
-   git diff upstream-pwsh/latestw_all upstream/<version> -- Makefile.in
+   ```pwsh
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Diff", Range="upstream-pwsh/latestw_all..upstream/<version>", Path="Makefile.in"
    ```
 
 2. **Identify new/removed source files:**
@@ -179,7 +180,8 @@ fatal error C1083: Cannot open source file: 'newfile.c'
 5. **Apply appropriate resolution strategy** (see error categories above) and **rebuild** with Start-OpenSSHBuild.
 6. **CRITICAL: Before committing, restore paths.targets**:
    ```pwsh
-   git checkout .\contrib\win32\openssh\paths.targets
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Checkout", Target=".\contrib\win32\openssh\paths.targets"
    ```
 7. **Commit fixes with detailed message** (only actual code changes, not paths.targets).
 
@@ -219,11 +221,14 @@ Only use this when running directly in a terminal (not via MCP):
 
 **Before committing any changes:**
 ```pwsh
-# Check if paths.targets was modified by the build
-git status .\contrib\win32\openssh\paths.targets
+# Check if paths.targets was modified by the build:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Status"
+# Check if paths.targets appears in result.ModifiedFiles
 
-# If it shows as modified, restore it to a clean state
-git checkout .\contrib\win32\openssh\paths.targets
+# If it shows as modified, restore it to a clean state:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Checkout", Target=".\contrib\win32\openssh\paths.targets"
 ```
 
 **Why this happens:**
@@ -235,10 +240,11 @@ git checkout .\contrib\win32\openssh\paths.targets
 1. **ALWAYS restore paths.targets before committing**:
    ```pwsh
    # This MUST be done before every commit
-   git checkout .\contrib\win32\openssh\paths.targets
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Checkout", Target=".\contrib\win32\openssh\paths.targets"
    ```
 2. Only commit actual code changes, not build-generated path updates
-3. Verify with `git status` that paths.targets is not staged before committing
+3. Verify with Invoke-Git `Operation="Status"` that paths.targets is not in `ModifiedFiles` before committing
 
 ## Project File Management
 

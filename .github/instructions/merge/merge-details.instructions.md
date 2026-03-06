@@ -84,16 +84,18 @@ FUNCTION resolve_conflict(file_path, conflict_content):
 ### Primary References
 - [Upstream release notes](https://www.openssh.com/releasenotes.html) - Pay special attention when merging new versions
 - [Previous merge PRs](./research.instructions.md) - Review conflict resolution patterns
-- Commit history and messages - Use `git log --oneline upstream/<version>` to understand changes
+- Commit history and messages - Use Invoke-Git `Operation="Log"`, `Range="<last-commit>..upstream/<version>"` to understand changes
 - Local repository file comparison - Use 3-way diff tools
 
 ### Analysis Commands
 ```pwsh
-# View commit details for understanding changes
-git show <commit-hash>
+# View commit details for understanding changes:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Show", CommitHash="<commit-hash>"
 
-# Compare files between branches
-git diff HEAD upstream/<version> -- <filepath>
+# Compare files between branches:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Diff", Range="HEAD..upstream/<version>", Path="<filepath>"
 ```
 
 ## Conflict Resolution Strategies
@@ -231,8 +233,9 @@ FUNCTION add_source_to_project(project_file, source_file):
 
 ### For Each Conflict:
 1. **Analyze the change**
-   ```bash
-   git show upstream/<version> -- <conflicted-file>
+   ```pwsh
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Show", CommitHash="upstream/<version>", Path="<conflicted-file>"
    ```
 
 2. **Check previous resolutions**

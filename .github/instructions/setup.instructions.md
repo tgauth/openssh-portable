@@ -35,9 +35,9 @@ git remote -v
 ```
 
 ### Step 4: Initial Fetch
-```pwsh
-git fetch --all
-```
+Use the Invoke-Git MCP tool to fetch from all remotes:
+- **MCP Tool**: `mcp_openssh-server_Invoke_Git`
+- **Operation**: `Fetch`, **Remote**: `all`
 
 ## Branch Strategy
 
@@ -75,7 +75,7 @@ Before proceeding to merge:
 - [ ] All three remotes configured (origin, upstream, upstream-pwsh)
 - [ ] Can fetch from all remotes without errors
 - [ ] Can see upstream target version/branch
-- [ ] Working directory is clean (`git status` shows no uncommitted changes)
+- [ ] Working directory is clean (use Invoke-Git `Operation="Status"` — `ModifiedFiles` and `ConflictedFiles` should both be empty)
 
 ## Troubleshooting
 

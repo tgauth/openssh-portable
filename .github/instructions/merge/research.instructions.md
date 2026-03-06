@@ -54,16 +54,19 @@ the AI should flag this as requiring Windows event mechanism adaptation.
 
 ## Upstream Repository Analysis
 
-**Commands for AI Agent:**
+**Commands for AI Agent (use Invoke-Git MCP tool):**
 ```pwsh
-# Get commit history for target version
-git log --oneline upstream/<target-version> --since="<last-merge-date>"
+# Get commit history for target version:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Log", Range="<last-merged-commit>..upstream/<target-version>"
 
-# Analyze specific commits
-git show <commit-hash>
+# Analyze specific commits:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Show", CommitHash="<commit-hash>"
 
-# Compare branches
-git diff HEAD upstream/<target-version>
+# Compare branches:
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Diff", Range="HEAD..upstream/<target-version>"
 ```
 
 ## Windows-Specific Knowledge Base

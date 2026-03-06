@@ -307,16 +307,20 @@ try {
 
         $process.Start() | Out-Null
 
-        # Wait for completion (with timeout)
-        $completed = $process.WaitForExit(15000)  # 15 second timeout
+        # Begin async reads BEFORE blocking on WaitForExit — prevents deadlock when
+        # SSH output exceeds the internal stream buffer size (same issue as MCP stdio).
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+
+        $completed = $process.WaitForExit(30000)  # 30-second timeout
 
         if (-not $completed) {
             $process.Kill()
-            throw "SSH connection timed out after 15 seconds"
+            throw "SSH connection timed out after 30 seconds"
         }
 
-        $stdout = $process.StandardOutput.ReadToEnd()
-        $stderr = $process.StandardError.ReadToEnd()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
         $exitCode = $process.ExitCode
 
         # Check result

@@ -66,7 +66,8 @@ The process consists of several interconnected phases:
 
 2. **Configure git:**
     ```pwsh
-    git config core.editor true
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Config", Key="core.editor", Value="true"
     ```
 
 ### Perform Merge with Grouped Commits
@@ -117,11 +118,16 @@ The process consists of several interconnected phases:
    # Example for a single chunk:
    $chunkStart = $result.StartCommitFull
    $chunkEnd   = $result.EndCommitFull
-   $commits = git rev-list --reverse "$chunkStart^..$chunkEnd"
 
-   foreach ($commit in $commits) {
-       Write-Host "Cherry-picking commit: $commit"
-       git cherry-pick $commit
+   # Get commits in oldest-first order using Invoke-Git MCP tool:
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Log", Range="$chunkStart^..$chunkEnd", ShasOnly=true
+   # result.Commits contains [{Hash, Message}] in oldest-first order
+
+   foreach ($commit in $result.Commits) {
+       # Cherry-pick each commit using Invoke-Git MCP tool:
+       # MCP Tool: mcp_openssh-server_Invoke_Git
+       # Operation="CherryPick", CommitHash=$commit.Hash
        
        # If conflicts occur, resolve them before continuing to next commit
        # (see step 7 below for conflict resolution)
@@ -141,8 +147,14 @@ The process consists of several interconnected phases:
 8. **Continue cherry-picking after resolution:**
    ```pwsh
    # After resolving conflicts for current commit
-   git add .
-   git cherry-pick --continue
+
+   # Stage all resolved files using Invoke-Git MCP tool:
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Add", Path="."
+
+   # Continue cherry-pick using Invoke-Git MCP tool:
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="CherryPickContinue"
 
    # Then continue with remaining commits in batch
    # Repeat process for next batch if needed
@@ -174,7 +186,8 @@ The process consists of several interconnected phases:
      
      **CRITICAL: Before committing, restore paths.targets**:
      ```pwsh
-     git checkout .\contrib\win32\openssh\paths.targets
+     # MCP Tool: mcp_openssh-server_Invoke_Git
+     # Operation="Checkout", Target=".\contrib\win32\openssh\paths.targets"
      ```
      Commit any build fixes separately with descriptive messages (only actual code changes)
 
@@ -197,9 +210,9 @@ The process consists of several interconnected phases:
 **📖 Detailed Instructions:** [Build Instructions](../build.instructions.md)
 
 7. **Initial build attempt:**
-   ```pwsh
-   Start-OpenSSHBuild -Configuration Release -NativeHostArch x64
-   ```
+   Use the Start-OpenSSHBuild MCP tool:
+   - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
+   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
 8. **Resolve compilation errors (iterative process):**
 
@@ -217,12 +230,14 @@ The process consists of several interconnected phases:
 
 10. **Commit build fixes:**
     ```pwsh
-    git commit -m "Fix compilation errors for <VERSION>
-
-    Changes:
-    - Updated config.h.vs with <new definitions>
-    - Added Windows equivalent for <function>
-    - Updated project files for <binary changes>"
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Commit"
+    # Message="Fix compilation errors for <VERSION>
+    #
+    # Changes:
+    # - Updated config.h.vs with <new definitions>
+    # - Added Windows equivalent for <function>
+    # - Updated project files for <binary changes>"
     ```
 
 ---
@@ -245,10 +260,12 @@ The process consists of several interconnected phases:
 
 13. **Commit any test fixes:**
     ```pwsh
-    git commit -m "Fix runtime issues for <VERSION>
-
-    Issues resolved:
-    - <specific problem and solution>"
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Commit"
+    # Message="Fix runtime issues for <VERSION>
+    #
+    # Issues resolved:
+    # - <specific problem and solution>"
     ```
 
 ---
@@ -258,7 +275,8 @@ The process consists of several interconnected phases:
 ### Creating the Pull Request
 14. **Push to fork:**
     ```pwsh
-    git push origin merge-v<VERSION>-<DATE>
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Push", Remote="origin", Branch="merge-v<VERSION>-<DATE>"
     ```
 
 15. **Create Pull Request:**
