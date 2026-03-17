@@ -16,16 +16,20 @@ Ensure the following tools are installed and configured before proceeding:
   - Latest Windows 10/11 SDK
 
 ## Process Overview
-The merge process uses a **chunked approach** to reduce complexity and improve success rates. Instead of merging entire upstream versions at once, commits are processed in small batches ending with commits that have CI runs. Each batch is built and optionally validated before proceeding to the next.
+The merge process uses a **two-phase approach** to preserve upstream commit history while keeping conflict resolution manageable:
+
+1. **Scratch branch** — Incremental `git merge` at batch boundaries. Build and test after each batch. Every conflict resolution is recorded via `git rerere` and a resolution log.
+2. **Real branch** — A single `git merge` of the final upstream target. Recorded resolutions are replayed automatically. This produces one merge commit with all upstream SHAs intact.
 
 The process consists of several interconnected phases:
 
 1. **[Setup Phase](#setup-phase)** - Repository configuration and preparation
 2. **[Research Phase](#research-phase)** - Understanding changes and conflicts
-3. **[Merge Phase](#merge-phase)** - Performing chunked commit merging
-4. **[Build Phase](#build-phase)** - Resolving compilation issues
-5. **[Testing Phase](#testing-phase)** - Validating functionality
-6. **[Submission Phase](#submission-phase)** - Creating the Pull Request
+3. **[Scratch Branch Phase](#scratch-branch-phase)** - Incremental merging with resolution recording
+4. **[Real Branch Phase](#real-branch-phase)** - Single merge with resolution replay
+5. **[Build Phase](#build-phase)** - Resolving compilation issues
+6. **[Testing Phase](#testing-phase)** - Validating functionality
+7. **[Submission Phase](#submission-phase)** - Creating the Pull Request
 
 ## Setup Phase
 
@@ -68,9 +72,24 @@ The process consists of several interconnected phases:
     ```pwsh
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Config", Key="core.editor", Value="true"
+
+    # Enable rerere for automatic resolution recording
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Config", Key="rerere.enabled", Value="true"
     ```
 
-### Perform Merge with Grouped Commits
+3. **Create branches:**
+    ```pwsh
+    # Create the real merge branch (receives the final single merge)
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="CreateBranch", Branch="merge-v<VERSION>-<YYYYMMDD>"
+
+    # Create the scratch branch from the same point (for incremental merges)
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="CreateBranch", Branch="scratch-merge-v<VERSION>-<YYYYMMDD>"
+    ```
+
+### Scratch Branch Phase
 4. **Identify merge range and group commits:**
     Use the Get-CommitGroups MCP tool with `-FirstChunkOnly -GroupByCIPresence`
 
@@ -103,61 +122,47 @@ The process consists of several interconnected phases:
    }
    ```
 
-   Display batch details for verification, then proceed with cherry-picking.
+   Display batch details for verification, then proceed with merging.
 
    **After completing steps below, get next batch**:
    - Call tool with `StartCommit=<end-commit-sha>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
    - Continue this process until the target end commit is reached (or HEAD if no end commit specified)
 
-5. **Execute chunked merge (batch cherry-pick all commits in chunk):**
+5. **Execute batch merge on scratch branch:**
 
-   **Important:** Cherry-pick **all commits in the batch** before building. This is more efficient than building after each individual commit. If the build fails, you can identify the problematic commit(s) through git bisect or by examining the build errors.
+   Merge the batch's end commit to bring in all commits in the range at once:
 
    ```pwsh
-   # For each chunk (start..end), cherry-pick all commits in the batch
-   # Example for a single chunk:
-   $chunkStart = $result.StartCommitFull
-   $chunkEnd   = $result.EndCommitFull
-
-   # Get commits in oldest-first order using Invoke-Git MCP tool:
+   # Merge all commits up to the batch endpoint
    # MCP Tool: mcp_openssh-server_Invoke_Git
-   # Operation="Log", Range="$chunkStart^..$chunkEnd", ShasOnly=true
-   # result.Commits contains [{Hash, Message}] in oldest-first order
-
-   foreach ($commit in $result.Commits) {
-       # Cherry-pick each commit using Invoke-Git MCP tool:
-       # MCP Tool: mcp_openssh-server_Invoke_Git
-       # Operation="CherryPick", CommitHash=$commit.Hash
-       
-       # If conflicts occur, resolve them before continuing to next commit
-       # (see step 7 below for conflict resolution)
-   }
-   
-   # After all commits in batch are cherry-picked, proceed to build (step 9)
+   # Operation="Merge", CommitHash=$result.EndCommitFull
    ```
 
-7. **Resolve merge conflicts (per commit):**
+   This uses `--no-ff` to always create a merge commit checkpoint.
+
+7. **Resolve merge conflicts and record resolutions:**
     **📖 Detailed Instructions** ([Merge Details](./merge-details.instructions.md)):
 
-   - Resolve conflicts for the current commit only
-   - Use three-way comparison tools
+   - Resolve conflicts for all conflicted files
+   - **Record each resolution** using the Save-MergeResolution MCP tool:
+     ```pwsh
+     # MCP Tool: mcp_openssh-server_Save_MergeResolution
+     # FilePath="<file>", Strategy="<strategy>", Rationale="<why>",
+     # BatchNumber=<N>, UpstreamCommits="<sha1,sha2>"
+     ```
+   - `git rerere` also automatically records resolutions
    - Follow established Windows compatibility patterns
    - Reference previous merge PRs for similar conflicts
 
-8. **Continue cherry-picking after resolution:**
+8. **Complete the merge after resolution:**
    ```pwsh
-   # After resolving conflicts for current commit
-
    # Stage all resolved files using Invoke-Git MCP tool:
    # MCP Tool: mcp_openssh-server_Invoke_Git
    # Operation="Add", Path="."
 
-   # Continue cherry-pick using Invoke-Git MCP tool:
+   # Continue merge using Invoke-Git MCP tool:
    # MCP Tool: mcp_openssh-server_Invoke_Git
-   # Operation="CherryPickContinue"
-
-   # Then continue with remaining commits in batch
-   # Repeat process for next batch if needed
+   # Operation="MergeContinue"
    ```
 
 9. **Build after completing the batch:**
@@ -170,11 +175,11 @@ The process consists of several interconnected phases:
          - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
          - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
      - **DO NOT** try to read log files directly with `Get-Content` or locate them manually
-     
+
      If build failed:
      - Fix issues based on parsed error output
      - Rebuild and verify
-     
+
      If build succeeded:
      - Compare warnings against baseline established in Phase 1
      - If new warnings detected:
@@ -183,7 +188,7 @@ The process consists of several interconnected phases:
        - Request user decision: fix warnings or proceed
        - Wait for user approval before continuing
        - If user approves proceeding, update baseline to include new warnings
-     
+
      **CRITICAL: Before committing, restore paths.targets**:
      ```pwsh
      # MCP Tool: mcp_openssh-server_Invoke_Git
@@ -203,6 +208,38 @@ The process consists of several interconnected phases:
     - Summarize batch changes, conflicts resolved, build status, validation status
     - Wait for user approval before proceeding to next batch
     - Document next steps (starting commit for next batch)
+    - After all batches complete on the scratch branch, proceed to the Real Branch Phase
+
+### Real Branch Phase
+12. **Switch to the real merge branch:**
+    ```pwsh
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Checkout", Target="merge-v<VERSION>-<YYYYMMDD>"
+    ```
+
+13. **Perform a single merge** of the final upstream target:
+    ```pwsh
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Merge", CommitHash="<final-upstream-commit-or-tag>"
+    ```
+    `git rerere` will automatically apply resolutions recorded during the scratch phase.
+
+14. **Replay remaining resolutions** from the log:
+    ```pwsh
+    # MCP Tool: mcp_openssh-server_Replay_MergeResolutions
+    # (reads from .git/merge-resolution-log.json)
+    ```
+    Resolve any unmatched files manually using the log's strategy and rationale as guidance.
+
+15. **Complete the merge and apply build fixes:**
+    ```pwsh
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="MergeContinue"
+    ```
+    Apply build fixes (config.h.vs, .vcxproj changes, etc.) as separate commits after the merge commit.
+
+16. **Final build and validation** on the real branch.
+
 ---
 
 ## Build Phase

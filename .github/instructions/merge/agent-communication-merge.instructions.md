@@ -301,6 +301,35 @@ Finalizing the merge:
 Ready to commit and push.
 ```
 
+### Scratch-to-Real Branch Transition:
+```
+Scratch branch phase complete!
+
+Summary:
+- Processed [N] batches on scratch branch
+- Resolved [X] total conflicts across [Y] files
+- All [N] batches built successfully
+- Resolution log saved with [X] entries
+
+Switching to the real merge branch for the single final merge.
+Recorded resolutions will be replayed automatically via git rerere and the resolution log.
+```
+
+### Real Branch Replay Report:
+```
+Single merge completed on real branch. Resolution replay results:
+
+- Auto-resolved by git rerere: [X] files
+- Replayed from resolution log: [Y] files
+- Unmatched (manual resolution needed): [Z] files
+  - [file1]: [brief reason]
+  - [file2]: [brief reason]
+- Failed replays: [W] files
+
+[If unmatched > 0]: Resolving the remaining [Z] files using strategies from the scratch phase...
+[If all resolved]: All conflicts resolved. Applying build fixes as separate commits.
+```
+
 ## Special Scenarios
 
 ### When Seeking User Approval:

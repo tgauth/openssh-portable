@@ -3,10 +3,10 @@
     Retrieves three-way context for a conflicted file to aid complex conflict resolution.
 
 .DESCRIPTION
-    MCP-compatible tool that fetches three versions of a file involved in a cherry-pick
-    conflict — the upstream file before the commit, the upstream file after the commit,
-    and our fork's version (via MERGE_HEAD) — and extracts focused, line-numbered excerpts
-    centered on each changed hunk.
+    MCP-compatible tool that fetches three versions of a file involved in a merge or
+    cherry-pick conflict — the upstream file before the commit, the upstream file after
+    the commit, and our fork's version (via HEAD) — and extracts focused, line-numbered
+    excerpts centered on each changed hunk.
 
     For each hunk in the upstream diff, the tool locates the corresponding region in our
     fork using two-tier content matching:
@@ -22,7 +22,8 @@
     Path to the conflicted file, relative to the repository root.
 
 .PARAMETER CommitHash
-    The upstream commit SHA being cherry-picked that caused the conflict.
+    The upstream commit SHA that caused the conflict. During the scratch-branch merge
+    workflow, this is typically the batch endpoint commit passed to git merge.
 
 .PARAMETER ContextLines
     Number of lines of context above and below each hunk match to include in excerpts.
@@ -344,11 +345,11 @@ $commitMsgResult = Invoke-GitCommand -Arguments @('log', '-1', '--pretty=format:
 $commitMessage   = if ($commitMsgResult.Success) { $commitMsgResult.Output.Trim() } else { '' }
 
 # 5. Fetch the three file versions
-#    MERGE_HEAD is populated by git during an in-progress cherry-pick conflict
-#    and points to the commit being cherry-picked (our fork's working state before merge)
+#    HEAD is our fork's version of the file during both merge and cherry-pick conflicts.
+#    CommitHash^ is the upstream state before the commit; CommitHash is after.
 $upstreamBefore = Get-FileAtRef -Ref "${CommitHash}^" -File $FilePath
 $upstreamAfter  = Get-FileAtRef -Ref "${CommitHash}"  -File $FilePath
-$ourFork        = Get-FileAtRef -Ref 'MERGE_HEAD'     -File $FilePath
+$ourFork        = Get-FileAtRef -Ref 'HEAD'            -File $FilePath
 
 # 6. Parse hunks from the diff
 $hunks     = Parse-DiffHunks -DiffText $upstreamDiff

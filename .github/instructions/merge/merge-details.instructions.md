@@ -7,16 +7,20 @@ applyTo: "**/*"
 ## Overview
 This AI-specific documentation provides comprehensive instructions and algorithmic frameworks that AI agents can use to systematically approach the OpenSSH merge process with minimal human intervention while maintaining high quality and consistency. It combines conflict resolution strategies with automated decision-making processes.
 
-**Key Approach: Chunked Merging**
-Instead of merging entire upstream versions at once, this framework implements a chunked approach that:
-- Processes commits in small batches ending with commits that have any CI run (successful or not)
-- Groups commits by CI presence rather than CI success for more frequent checkpoints
-- Builds after each batch (mandatory)
+**Key Approach: Two-Phase Merge with Scratch Branch**
+Instead of cherry-picking commits (which rewrites history), this framework implements a two-phase approach:
+
+1. **Scratch branch** — Incremental `git merge` at batch boundaries (grouped by CI presence). Build and test after each batch. Every conflict resolution is recorded via `git rerere` and the Save-MergeResolution MCP tool.
+2. **Real branch** — A single `git merge` of the final upstream target. Recorded resolutions replay automatically via `git rerere` and Replay-MergeResolutions. This produces one merge commit with all upstream SHAs intact.
+
+Benefits:
+- Preserves upstream commit history exactly (original SHAs, authors, timestamps)
+- Uses incremental merge on scratch branch so conflict markers match the final merge (maximising `rerere` replay)
+- Builds after each batch on scratch branch (mandatory) for early error detection
 - Validates functionality only at successful CI checkpoints
 - Requires user approval before proceeding to next batch
 - Allows for incremental progress and easier rollback
 - Reduces complexity of conflict resolution
-- Enables better testing and validation at each step
 
 ## Decision Framework for AI Agents
 
@@ -270,7 +274,7 @@ FUNCTION automated_build_fix():
 
         // ALWAYS invoke Test-OpenSSHBuild.ps1 to check warnings (success or failure)
         test_result = test_openssh_build(Configuration="Release", Architecture="x64", LogFile=build_result.log)
-        
+
         IF build_result.success:
             // Check for new warnings against baseline
             new_warnings = compare_warnings_to_baseline(test_result.warnings, baseline_warnings)
@@ -321,6 +325,8 @@ FUNCTION determine_fix_strategy(error):
 - Compare warning count against established baseline
 - If new warnings detected, report to user with categorization and request approval before proceeding
 - Do NOT skip `Test-OpenSSHBuild.ps1` even when build succeeds - warning checks are mandatory.
+- On the scratch branch, commit build fixes after each batch merge commit.
+- On the real branch, apply the same build fixes as separate commits after the single merge commit.
 
 ## Testing Automation Framework
 
@@ -423,17 +429,17 @@ FUNCTION assess_conflict_complexity(conflicts):
 When `assess_conflict_complexity()` returns `HIGH_COMPLEXITY`, invoke the `Get-ConflictContext` MCP tool **before** attempting to edit the file. It provides three-way context anchored to the actual changed regions, accounting for the fact that our fork's line numbers differ from upstream.
 
 ```pseudocode
-FUNCTION resolve_conflict(file_path, conflict_content, cherry_pick_commit):
+FUNCTION resolve_conflict(file_path, conflict_content, merge_batch_commit):
     complexity = assess_conflict_complexity([{file: file_path, content: conflict_content}])
 
     IF complexity == "HIGH_COMPLEXITY":
         // Fetch three-way context before editing
         // MCP Tool: mcp_openssh-server_Get_ConflictContext
-        // FilePath=file_path, CommitHash=cherry_pick_commit
+        // FilePath=file_path, CommitHash=merge_batch_commit
         //
         // If the default MaxTotalLines=150 is insufficient (e.g., many hunks or
         // a large function), re-invoke with a higher value such as MaxTotalLines=300.
-        context = get_conflict_context(file_path, cherry_pick_commit)
+        context = get_conflict_context(file_path, merge_batch_commit)
 
         FOR EACH hunk IN context.Hunks:
             // Use all three excerpts to understand:
@@ -445,9 +451,17 @@ FUNCTION resolve_conflict(file_path, conflict_content, cherry_pick_commit):
 
         // Check Message for budget warnings and increase MaxTotalLines if needed
         IF context.Message contains "minimum floor":
-            re_invoke_with_larger_budget(file_path, cherry_pick_commit)
+            re_invoke_with_larger_budget(file_path, merge_batch_commit)
 
-    RETURN apply_resolution_strategy(file_path, conflict_content)
+    resolved = apply_resolution_strategy(file_path, conflict_content)
+
+    // Record the resolution for replay on the real branch
+    // MCP Tool: mcp_openssh-server_Save_MergeResolution
+    // FilePath=file_path, Strategy=<chosen_strategy>, Rationale=<why>,
+    // BatchNumber=<N>, UpstreamCommits=<commits_touching_file>
+    save_merge_resolution(file_path, strategy, rationale, batch_number)
+
+    RETURN resolved
 ```
 
 **Key behaviours of the tool:**

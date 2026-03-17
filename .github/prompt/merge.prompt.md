@@ -12,7 +12,7 @@ Provide the following when you invoke this prompt:
 Operating guidance:
 - Use and follow merge-upstream.agent.md. Treat it as the primary operating guide.
 - Rely on the provided <attachments> for repository overview, setup, build, merge strategy, and testing. Do not re-fetch or re-search them; assume they are already attached in context.
-- Perform chunked merges ending at commits with CI runs; build after each batch. Only parse build logs if the build fails.
+- Use the two-phase merge workflow: (1) incremental `git merge` on a scratch branch with resolution recording via `git rerere` and Save-MergeResolution, then (2) a single `git merge` on the real branch with resolution replay via `git rerere` and Replay-MergeResolutions. This preserves upstream commit history.
 - Build using the MCP tools: `mcp_openssh-server_Start_OpenSSHBuild` (Release/x64 by default). If the build fails, analyze with `mcp_openssh-server_Test_OpenSSHBuild`.
 - Apply Windows compatibility strategies as documented (prefer win32compat layer; guard with `#ifdef WINDOWS` when necessary; update VS projects for build system changes).
 - Summarize a plan, request approval between batches, and clearly list conflict resolutions and rationale.

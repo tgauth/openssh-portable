@@ -15,6 +15,7 @@
 .PARAMETER Operation
     The git operation to perform. One of:
     CherryPick, CherryPickContinue, CherryPickAbort,
+    Merge, MergeContinue, MergeAbort,
     Add, Checkout, CreateBranch,
     Commit, Push, Fetch,
     Config, Reset, Clean,
@@ -22,7 +23,7 @@
 
 .PARAMETER CommitHash
     A commit SHA or any git ref (branch name, tag, etc.).
-    Used by: CherryPick, Show.
+    Used by: CherryPick, Merge, Show.
 
 .PARAMETER Range
     A git range expression (e.g. "abc123^..def456" or "HEAD..upstream/V_10_0_P2").
@@ -78,6 +79,7 @@
       Message     [string]   Human-readable summary
     Plus operation-specific fields:
       CherryPick (on failure): ConflictedFiles [string[]]
+      Merge (on failure):      ConflictedFiles [string[]]
       Log / ShasOnly:          Commits          [{Hash, Message}]
       Status:                  ConflictedFiles  [string[]], ModifiedFiles [string[]]
       Commit (on success):     CommitHash       [string]
@@ -153,6 +155,26 @@
     # Operation="Reset", Target="HEAD", Mode="hard"
 
 .EXAMPLE
+    # Merge an upstream batch endpoint into the current branch
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Merge", CommitHash="6fb728df50c1afd338cb0223a84ce24579577eff"
+
+.EXAMPLE
+    # Continue a merge after resolving conflicts
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="MergeContinue"
+
+.EXAMPLE
+    # Abort an in-progress merge
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="MergeAbort"
+
+.EXAMPLE
+    # Enable rerere for merge resolution recording
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Config", Key="rerere.enabled", Value="true"
+
+.EXAMPLE
     # Remove untracked files (recovery)
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Clean"
@@ -162,6 +184,7 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet(
         'CherryPick', 'CherryPickContinue', 'CherryPickAbort',
+        'Merge', 'MergeContinue', 'MergeAbort',
         'Add', 'Checkout', 'CreateBranch',
         'Commit', 'Push', 'Fetch',
         'Config', 'Reset', 'Clean',
@@ -169,7 +192,7 @@ param(
     )]
     [string]$Operation,
 
-    # CherryPick, Show — accepts any git ref: commit SHA, branch name, tag, etc.
+    # CherryPick, Merge, Show — accepts any git ref: commit SHA, branch name, tag, etc.
     [string]$CommitHash = '',
 
     # Log (plain or ShasOnly), Diff — git range expression e.g. "abc123^..def456"
@@ -288,6 +311,26 @@ $result = switch ($Operation) {
 
     'CherryPickAbort' {
         Invoke-GitCommand -Arguments @('cherry-pick', '--abort')
+    }
+
+    'Merge' {
+        if (-not $CommitHash) { throw 'CommitHash is required for Merge (target ref to merge)' }
+        $r = Invoke-GitCommand -Arguments @('merge', '--no-ff', $CommitHash)
+        if (-not $r.Success) {
+            $statusResult = Invoke-GitCommand -Arguments @('status', '--porcelain')
+            $r['ConflictedFiles'] = ($statusResult.Output -split "`n") |
+                Where-Object { $_ -match '^(UU|AA|DD|AU|UA|DU|UD)\s' } |
+                ForEach-Object { $_.Substring(3).Trim() }
+        }
+        $r
+    }
+
+    'MergeContinue' {
+        Invoke-GitCommand -Arguments @('merge', '--continue')
+    }
+
+    'MergeAbort' {
+        Invoke-GitCommand -Arguments @('merge', '--abort')
     }
 
     'Add' {
