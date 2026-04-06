@@ -98,6 +98,33 @@ The MCP tool performs comprehensive end-to-end testing including:
 - Before creating pull requests
 - When debugging SSH connectivity issues
 
+## Validation Scenario Override: Entra-ID Debug Localhost
+
+Use this scenario when the prompt explicitly declares `Validation scenario=entra-id-debug-localhost`.
+
+In this scenario, do not create a temporary local user and random password. Instead, validate using an existing Entra-ID administrator account with key-based auth already configured.
+
+### Steps
+1. Open terminal A in the build output directory and run sshd in foreground debug mode:
+```pwsh
+cd .\contrib\win32\openssh\x64\Release
+.\sshd.exe -ddd
+```
+
+2. Open terminal B and attempt local key-based connection:
+```pwsh
+ssh localhost
+```
+
+3. Confirm validation success by checking both sides:
+- Client side: successful login on `ssh localhost` using existing key-based auth
+- Server side (terminal A): no fatal errors during authentication/session setup
+
+### Notes
+- This mode is intended for machines that already have admin key-based auth configured.
+- Keep `sshd -ddd` running only for validation and stop it after the test.
+- Use this scenario instead of `Test-OpenSSHFunctionality` when declared in the prompt.
+
 ## Manual Testing Procedures (For Troubleshooting Only)
 
 If the automated MCP tool fails and you need to troubleshoot specific issues manually, follow these procedures:
@@ -228,7 +255,7 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 **Testing is successful when:**
 - [ ] All expected executables are present after build (verified by Test-OpenSSHBuild MCP tool)
 - [ ] SSH service installs and starts without errors
-- [ ] SSH connection with password authentication succeeds
+- [ ] SSH validation succeeds via either password authentication (standard) or `ssh localhost` key-based auth (entra-id-debug-localhost)
 - [ ] Test command executes successfully via SSH connection
 - [ ] All resources cleaned up properly after testing
 
@@ -247,6 +274,11 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 1. **After successful build**, run the automated functionality test:
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**: (use defaults)
+
+  If the prompt declares `Validation scenario=entra-id-debug-localhost`, use the Entra-ID debug localhost flow instead:
+  - Run `.\sshd.exe -ddd` in one terminal
+  - Run `ssh localhost` in another terminal
+  - Report outcome from both client connection behavior and server debug logs
 
 2. **If test passes**, the merge is validated for basic SSH functionality
 

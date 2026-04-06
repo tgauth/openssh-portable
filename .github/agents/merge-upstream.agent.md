@@ -53,6 +53,11 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
      - `NoCleanup` (boolean, optional): Skip cleanup for debugging (default: false)
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
+   **Validation scenario override:**
+   - If prompt input declares `Validation scenario=entra-id-debug-localhost`, do not use temporary local-user/password validation.
+   - Instead, run `sshd -ddd` in one terminal and validate with `ssh localhost` from a second terminal.
+   - Use this only on machines where the Entra-ID admin account already has key-based auth configured.
+
 4. **Get-ConflictContext MCP Tool** - Three-way conflict context for high-complexity conflicts
    - **MCP Tool Name**: `mcp_openssh-server_Get_ConflictContext`
    - **When to use**: ONLY when `assess_conflict_complexity()` returns `HIGH_COMPLEXITY`
