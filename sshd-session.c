@@ -650,6 +650,7 @@ privsep_preauth(struct ssh *ssh)
 #ifdef FORK_NOT_SUPPORTED
 	if (privsep_auth_child) {
 		Authctxt *authctxt = ssh->authctxt;
+		recv_idexch_state(ssh, PRIVSEP_MONITOR_FD);
 		recv_autxctx_state(authctxt, PRIVSEP_MONITOR_FD);
 		authctxt->pw = getpwnamallow(ssh, authctxt->user);
 		authctxt->valid = 1;
@@ -1691,13 +1692,6 @@ main(int ac, char **av)
 
 	rdomain = ssh_packet_rdomain_in(ssh);
 
-#ifdef WINDOWS
-	if (privsep_auth_child) {
-		recv_idexch_state(ssh, PRIVSEP_MONITOR_FD);
-		goto idexch_done;
-	}
-#endif /* WINDOWS */
-
 	/* Log the connection. */
 	laddr = get_local_ipaddr(sock_in);
 	verbose("Connection from %s port %d on %s port %d%s%s%s",
@@ -1731,18 +1725,6 @@ main(int ac, char **av)
 			fatal("login grace time setitimer failed");
 	}
 
-	if ((r = kex_exchange_identification(ssh, -1,
-	    options.version_addendum)) != 0)
-#ifdef WINDOWS
-	{
-		send_kex_exch_exit_code_telemetry(r);
-#endif /* WINDOWS */
-		sshpkt_fatal(ssh, r, "banner exchange");
-#ifdef WINDOWS
-	}
-	send_kex_exch_exit_code_telemetry(0);
-#endif /* WINDOWS */
-idexch_done:
 	ssh_packet_set_nonblocking(ssh);
 
 	/* allocate authentication context */

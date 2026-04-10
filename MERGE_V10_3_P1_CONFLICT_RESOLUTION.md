@@ -88,12 +88,14 @@ Files:
 - contrib/win32/openssh/libssh.vcxproj
 - contrib/win32/openssh/unittest-*.vcxproj (multiple)
 - servconf.h
+- sshd-session.c
 
 Resolution:
 - Fixed Windows compile-scope issue in scp command execution path.
 - Ensured glob_t declarations are visible where required.
 - Synced project file source lists with current upstream/fork code split.
 - Applied type alignment in servconf struct field.
+- Corrected the Windows split-session privsep state flow so the post-auth `sshd-session -z` child reads the saved identification-exchange state before the authenticated user context.
 
 ## Validation Results
 
@@ -110,8 +112,10 @@ Resolution:
 
 ### Functionality test
 
-- Automated functionality test could not run in this environment due missing Administrator privileges.
-- Tool reported: Administrator privileges required for service install/user management.
+- Validation scenario used: `entra-id-debug-localhost`.
+- Ran `sshd.exe -ddd` elevated and validated with the rebuilt `ssh.exe` against `localhost`.
+- Result after the follow-up `sshd-session.c` fix: public-key authentication succeeded, `whoami` executed successfully, and the session exited with status 0.
+- Observed command output: `NORTHAMERICA+tessgauthier`.
 
 ## Notes for Review
 
