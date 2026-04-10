@@ -1,7 +1,11 @@
 #pragma once
 #include "..\crtheaders.h"
 #include "types.h"
+#ifdef SYS_STAT_H
 #include SYS_STAT_H
+#else
+#include <sys/stat.h>
+#endif
 
 #define _S_IFLNK  0xA000 // symbolic link
 #define _S_IFSOCK 0xC000 // socket
