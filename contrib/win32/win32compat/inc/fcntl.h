@@ -1,5 +1,9 @@
 #include "crtheaders.h"
+#ifdef FCNTL_H
 #include FCNTL_H
+#else
+#include <fcntl.h>
+#endif
 
 /*fcntl commands*/
 #define F_GETFL 0x1
