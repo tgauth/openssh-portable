@@ -74,7 +74,9 @@
 #include "includes.h"
 
 #include <sys/types.h>
+#ifndef _WIN32
 #include <endian.h>
+#endif
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>

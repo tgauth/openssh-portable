@@ -45,6 +45,7 @@
 typedef void(*sighandler_t)(int);
 typedef int sigset_t;
 #define sigemptyset(set) (memset( (set), 0, sizeof(sigset_t)))
+#define sigfillset(set) (memset((set), 0xFF, sizeof(sigset_t)))
 #define sigaddset(set, sig) ( (*(set)) |= (0x80000000 >> (sig)))
 #define sigismember(set, sig) ( (*(set) & (0x80000000 >> (sig)))?1:0 )
 #define sigdelset(set, sig) ( (*(set)) &= (~( 0x80000000 >> (sig)) ) )

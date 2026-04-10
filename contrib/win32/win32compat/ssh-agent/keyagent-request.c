@@ -33,6 +33,7 @@
 #include "agent-request.h"
 #include "config.h"
 #include "match.h"
+#include "openbsd-compat/sys-queue.h"
 #include <sddl.h>
 #ifdef ENABLE_PKCS11
 #include "ssh-pkcs11.h"
@@ -54,14 +55,54 @@ extern int remote_add_provider;
  * while system keys (host keys) in HKLM
  */
 
-extern struct sshkey *
-lookup_key(const struct sshkey *k);
+struct p11_identity {
+	TAILQ_ENTRY(p11_identity) next;
+	struct sshkey *key;
+	char *provider;
+};
 
-extern void
-add_key(struct sshkey *k, char *name);
+TAILQ_HEAD(p11_idlist, p11_identity);
+static struct p11_idlist p11_identities = TAILQ_HEAD_INITIALIZER(p11_identities);
 
-extern void
-del_all_keys();
+static struct sshkey *
+lookup_key(const struct sshkey *k)
+{
+	struct p11_identity *id;
+
+	TAILQ_FOREACH(id, &p11_identities, next) {
+		if (sshkey_equal(k, id->key))
+			return id->key;
+	}
+	return NULL;
+}
+
+static void
+add_key(struct sshkey *k, char *name)
+{
+	struct p11_identity *id;
+
+	if (lookup_key(k) != NULL) {
+		sshkey_free(k);
+		return;
+	}
+	id = xcalloc(1, sizeof(*id));
+	id->key = k;
+	id->provider = xstrdup(name);
+	TAILQ_INSERT_TAIL(&p11_identities, id, next);
+}
+
+static void
+del_all_keys(void)
+{
+	struct p11_identity *id;
+
+	while ((id = TAILQ_FIRST(&p11_identities)) != NULL) {
+		TAILQ_REMOVE(&p11_identities, id, next);
+		sshkey_free(id->key);
+		free(id->provider);
+		free(id);
+	}
+}
 
 static int
 get_user_root(struct agent_connection* con, HKEY *root)

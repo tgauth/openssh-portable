@@ -32,7 +32,9 @@
 #include <stdbool.h>
 #include <string.h>
 #include <signal.h>
+#ifndef _WIN32
 #include <endian.h>
+#endif
 
 #include "sshkey.h"
 #include "kex.h"

@@ -69,7 +69,9 @@
 
 #include <ctype.h>
 #include <errno.h>
+#ifdef HAVE_PATHS_H
 #include <paths.h>
+#endif
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -106,6 +108,10 @@
 
 /* Uncertainty (in percent) of keystroke timing intervals */
 #define SSH_KEYSTROKE_TIMING_FUZZ 10
+
+#ifndef PLEDGE_EXTRA_INET
+#define PLEDGE_EXTRA_INET ""
+#endif
 
 /* import options */
 extern Options options;

@@ -263,6 +263,14 @@ socket_is_stale(const char *path)
 	return 0;
 }
 
+#ifdef _WIN32
+void
+agent_cleanup_stale(const char *homedir, int ignore_hosthash)
+{
+	(void)homedir;
+	(void)ignore_hosthash;
+}
+#else
 #ifndef HAVE_FSTATAT
 # define fstatat(x, y, buf, z) lstat(path, buf)
 #endif
@@ -355,3 +363,4 @@ agent_cleanup_stale(const char *homedir, int ignore_hosthash)
 
 #undef unlinkat
 #undef fstatat
+#endif /* _WIN32 */

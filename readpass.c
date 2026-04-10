@@ -30,7 +30,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#ifndef _WIN32
 #include <paths.h>
+#endif
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>

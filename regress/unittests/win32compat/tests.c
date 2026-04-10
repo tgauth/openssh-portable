@@ -27,6 +27,12 @@ tests()
 	miscellaneous_tests();
 }
 
+void
+benchmarks(void)
+{
+	printf("no benchmarks\n");
+}
+
 char *
 dup_str(char *inStr)
 {
