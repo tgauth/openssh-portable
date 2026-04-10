@@ -1,12 +1,13 @@
+*~
 # Ignores in parent branch
 Makefile
 buildpkg.sh
 config.h
-config.h.in~
 config.log
 config.status
 openbsd-compat/Makefile
 openbsd-compat/regress/Makefile
+openbsd-compat/include
 openssh.xml
 opensshd.init
 survey.sh
@@ -17,7 +18,6 @@ survey.sh
 **/*.dll
 **/*.out
 **/*.a
-**/*.un~
 **/.*.swp
 autom4te.cache/
 scp

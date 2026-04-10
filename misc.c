@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.198 2024/10/24 03:14:37 djm Exp $ */
+/* $OpenBSD: misc.c,v 1.213 2026/03/03 09:57:25 dtucker Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005-2020 Damien Miller.  All rights reserved.
@@ -22,9 +22,9 @@
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
-#ifndef WINDOWS
+#ifndef _WIN32
 #include <sys/mman.h>
-#endif /* WINDOWS */
+#endif
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -32,28 +32,21 @@
 #include <sys/un.h>
 
 #include <limits.h>
-#ifdef HAVE_LIBGEN_H
-# include <libgen.h>
-#endif
-#ifdef HAVE_POLL_H
+#include <libgen.h>
 #include <poll.h>
-#endif
-#ifdef HAVE_NLIST_H
+#ifndef _WIN32
 #include <nlist.h>
 #endif
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
-#ifdef HAVE_STDINT_H
-# include <stdint.h>
-#endif
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <netinet/in.h>
-#include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -62,11 +55,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#ifdef HAVE_PATHS_H
-# include <paths.h>
+#ifndef _WIN32
+#include <paths.h>
+#endif
 #include <pwd.h>
 #include <grp.h>
-#endif
 #ifdef SSH_TUN_OPENBSD
 #include <net/if.h>
 #endif
@@ -78,6 +71,10 @@
 #include "sshbuf.h"
 #include "ssherr.h"
 #include "platform.h"
+
+#ifndef O_NOCTTY
+#define O_NOCTTY 0
+#endif
 
 /* remove newline at end of string */
 char *
@@ -103,10 +100,13 @@ rtrim(char *s)
 
 	if ((i = strlen(s)) == 0)
 		return;
-	for (i--; i > 0; i--) {
+	do {
+		i--;
 		if (isspace((unsigned char)s[i]))
 			s[i] = '\0';
-	}
+		else
+			break;
+	} while (i > 0);
 }
 
 /*
@@ -128,6 +128,34 @@ strprefix(const char *s, const char *prefix, int ignorecase)
 			return NULL;
 	}
 	return s + prefixlen;
+}
+
+/* Append string 's' to a NULL-terminated array of strings */
+void
+stringlist_append(char ***listp, const char *s)
+{
+	size_t i = 0;
+
+	if (*listp == NULL)
+		*listp = xcalloc(2, sizeof(**listp));
+	else {
+		for (i = 0; (*listp)[i] != NULL; i++)
+			; /* count */
+		*listp = xrecallocarray(*listp, i + 1, i + 2, sizeof(**listp));
+	}
+	(*listp)[i] = xstrdup(s);
+}
+
+void
+stringlist_free(char **list)
+{
+	size_t i = 0;
+
+	if (list == NULL)
+		return;
+	for (i = 0; list[i] != NULL; i++)
+		free(list[i]);
+	free(list);
 }
 
 /* set/unset filedescriptor to non-blocking */
@@ -299,6 +327,10 @@ set_sock_tos(int fd, int tos)
 #ifndef IP_TOS_IS_BROKEN
 	int af;
 
+	if (tos < 0 || tos == INT_MAX) {
+		debug_f("invalid TOS %d", tos);
+		return;
+	}
 	switch ((af = get_sock_af(fd))) {
 	case -1:
 		/* assume not a socket */
@@ -339,32 +371,14 @@ static int
 waitfd(int fd, int *timeoutp, short events, volatile sig_atomic_t *stop)
 {
 	struct pollfd pfd;
-#ifdef WINDOWS
-	struct timeval t_start;
-	int oerrno, r, have_timeout = (*timeoutp >= 0);
-#else
 	struct timespec timeout;
 	int oerrno, r;
 	sigset_t nsigset, osigset;
 
 	if (timeoutp && *timeoutp == -1)
 		timeoutp = NULL;
-#endif /* WINDOWS */
-
 	pfd.fd = fd;
 	pfd.events = events;
-#ifdef WINDOWS
-	/*
-	 * Windows does not support sigprocmask
-	 * which was implemented to handle ctrl+c during multiplexing.
-	 * When Win32-OpenSSH adds multiplexing support, modify and use
-	 * native_sig_handler in contrib/win32/win32compat/signal.c here
-	 *
-	*/
-	for (; !have_timeout || *timeoutp >= 0;) {
-		monotime_tv(&t_start);
-		r = poll(&pfd, 1, *timeoutp);
-#else
 	ptimeout_init(&timeout);
 	if (timeoutp != NULL)
 		ptimeout_deadline_ms(&timeout, *timeoutp);
@@ -380,18 +394,12 @@ waitfd(int fd, int *timeoutp, short events, volatile sig_atomic_t *stop)
 			}
 		}
 		r = ppoll(&pfd, 1, ptimeout_get_tsp(&timeout),
-			stop != NULL ? &osigset : NULL);
-#endif /* WINDOWS */
+		    stop != NULL ? &osigset : NULL);
 		oerrno = errno;
-#ifdef WINDOWS
-		if (have_timeout)
-			ms_subtract_diff(&t_start, timeoutp);
-#else
 		if (stop != NULL)
 			sigprocmask(SIG_SETMASK, &osigset, NULL);
 		if (timeoutp)
 			*timeoutp = ptimeout_get_ms(&timeout);
-#endif /* WINDOWS */
 		errno = oerrno;
 		if (r > 0)
 			return 0;
@@ -509,7 +517,7 @@ strdelim_internal(char **s, int split_equals)
 }
 
 /*
- * Return next token in configuration line; splts on whitespace or a
+ * Return next token in configuration line; splits on whitespace or a
  * single '=' character.
  */
 char *
@@ -519,7 +527,7 @@ strdelim(char **s)
 }
 
 /*
- * Return next token in configuration line; splts on whitespace only.
+ * Return next token in configuration line; splits on whitespace only.
  */
 char *
 strdelimw(char **s)
@@ -535,7 +543,7 @@ pwcopy(struct passwd *pw)
 	copy->pw_name = xstrdup(pw->pw_name);
 	copy->pw_passwd = xstrdup(pw->pw_passwd == NULL ? "*" : pw->pw_passwd);
 #ifdef HAVE_STRUCT_PASSWD_PW_GECOS
-	copy->pw_gecos = xstrdup(pw->pw_gecos);
+	copy->pw_gecos = xstrdup(pw->pw_gecos == NULL ? "" : pw->pw_gecos);
 #endif
 	copy->pw_uid = pw->pw_uid;
 	copy->pw_gid = pw->pw_gid;
@@ -546,12 +554,30 @@ pwcopy(struct passwd *pw)
 	copy->pw_change = pw->pw_change;
 #endif
 #ifdef HAVE_STRUCT_PASSWD_PW_CLASS
-	copy->pw_class = xstrdup(pw->pw_class);
+	copy->pw_class = xstrdup(pw->pw_class == NULL ? "" : pw->pw_class);
 #endif
-	copy->pw_dir = xstrdup(pw->pw_dir);
-	copy->pw_shell = xstrdup(pw->pw_shell);
-
+	copy->pw_dir = xstrdup(pw->pw_dir == NULL ? "" : pw->pw_dir);
+	copy->pw_shell = xstrdup(pw->pw_shell == NULL ? "" : pw->pw_shell);
 	return copy;
+}
+
+void
+pwfree(struct passwd *pw)
+{
+	if (pw == NULL)
+		return;
+	free(pw->pw_name);
+	freezero(pw->pw_passwd,
+	    pw->pw_passwd == NULL ? 0 : strlen(pw->pw_passwd));
+#ifdef HAVE_STRUCT_PASSWD_PW_GECOS
+	free(pw->pw_gecos);
+#endif
+#ifdef HAVE_STRUCT_PASSWD_PW_CLASS
+	free(pw->pw_class);
+#endif
+	free(pw->pw_dir);
+	free(pw->pw_shell);
+	freezero(pw, sizeof(*pw));
 }
 
 /*
@@ -605,24 +631,21 @@ a2tun(const char *s, int *remote)
 	return (tun);
 }
 
-#define SECONDS		1
+#define SECONDS		1.0
 #define MINUTES		(SECONDS * 60)
 #define HOURS		(MINUTES * 60)
 #define DAYS		(HOURS * 24)
 #define WEEKS		(DAYS * 7)
 
-static char *
-scandigits(char *s)
-{
-	while (isdigit((unsigned char)*s))
-		s++;
-	return s;
-}
-
 /*
- * Convert a time string into seconds; format is
- * a sequence of:
+ * Convert an interval/duration time string into seconds, which may include
+ * fractional seconds.
+ *
+ * The format is a sequence of:
  *      time[qualifier]
+ *
+ * This supports fractional values for the seconds value only. All other
+ * values must be integers.
  *
  * Valid time qualifiers are:
  *      <none>  seconds
@@ -633,44 +656,46 @@ scandigits(char *s)
  *      w|W     weeks
  *
  * Examples:
- *      90m     90 minutes
- *      1h30m   90 minutes
- *      2d      2 days
- *      1w      1 week
+ *      90m      90 minutes
+ *      1h30m    90 minutes
+ *      1.5s     1.5 seconds
+ *      2d       2 days
+ *      1w       1 week
  *
- * Return -1 if time string is invalid.
+ * Returns <0.0 if the time string is invalid.
  */
-int
-convtime(const char *s)
+double
+convtime_double(const char *s)
 {
-	int secs, total = 0, multiplier;
-	char *p, *os, *np, c = 0;
-	const char *errstr;
+	double val, total_sec = 0.0, multiplier;
+	const char *p, *start_p;
+	char *endp;
+	int seen_seconds = 0;
 
 	if (s == NULL || *s == '\0')
-		return -1;
-	p = os = strdup(s);	/* deal with const */
-	if (os == NULL)
-		return -1;
+		return -1.0;
 
-	while (*p) {
-		np = scandigits(p);
-		if (np) {
-			c = *np;
-			*np = '\0';
-		}
-		secs = (int)strtonum(p, 0, INT_MAX, &errstr);
-		if (errstr)
-			goto fail;
-		*np = c;
+	for (p = s; *p != '\0';) {
+		if (!isdigit((unsigned char)*p) && *p != '.')
+			return -1.0;
 
-		multiplier = 1;
-		switch (c) {
+		errno = 0;
+		if ((val = strtod(p, &endp)) < 0 || errno != 0 || p == endp)
+			return -1.0;
+		/* Allow only decimal forms */
+		if (p + strspn(p, "0123456789.") != endp)
+			return -1.0;
+		start_p = p;
+		p = endp;
+
+		switch (*p) {
 		case '\0':
-			np--;	/* back up */
-			break;
+			/* FALLTHROUGH */
 		case 's':
 		case 'S':
+			if (seen_seconds++)
+				return -1.0;
+			multiplier = SECONDS;
 			break;
 		case 'm':
 		case 'M':
@@ -689,23 +714,44 @@ convtime(const char *s)
 			multiplier = WEEKS;
 			break;
 		default:
-			goto fail;
+			return -1.0;
 		}
-		if (secs > INT_MAX / multiplier)
-			goto fail;
-		secs *= multiplier;
-		if  (total > INT_MAX - secs)
-			goto fail;
-		total += secs;
-		if (total < 0)
-			goto fail;
-		p = ++np;
+
+		/* Special handling if this was a decimal */
+		if (memchr(start_p, '.', endp - start_p) != NULL) {
+			/* Decimal point present */
+			if (multiplier > 1.0)
+				return -1.0; /* No fractionals for non-seconds */
+			/* For seconds, ensure digits follow */
+			if (!isdigit((unsigned char)*(endp - 1)))
+				return -1.0;
+		}
+
+		total_sec += val * multiplier;
+
+		if (*p != '\0')
+			p++;
 	}
-	free(os);
-	return total;
-fail:
-	free(os);
-	return -1;
+	return total_sec;
+}
+
+/*
+ * Same as convtime_double() above but fractional seconds are ignored.
+ * Return -1 if time string is invalid.
+ */
+int
+convtime(const char *s)
+{
+	double sec_val;
+
+	if ((sec_val = convtime_double(s)) < 0.0)
+		return -1;
+
+	/* Check for overflow into int */
+	if (sec_val < 0 || sec_val > INT_MAX)
+		return -1;
+
+	return (int)sec_val;
 }
 
 #define TF_BUFS	8
@@ -836,17 +882,6 @@ colon(char *cp)
 
 	if (*cp == ':')		/* Leading colon is part of file name. */
 		return NULL;
-
-#ifdef WINDOWS
-	/*
-	 * Account for Windows file names in the form x: or /x:
-	 * Note: This may conflict with potential single character targets
-	 */
-	if ((*cp != '\0' && cp[1] == ':') ||
-	    (cp[0] == '/' && cp[1] != '\0' && cp[2] == ':'))
-		return NULL;
-#endif
-
 	if (*cp == '[')
 		flag = 1;
 
@@ -1028,7 +1063,7 @@ urldecode(const char *src)
 	size_t srclen;
 
 	if ((srclen = strlen(src)) >= SIZE_MAX)
-		fatal_f("input too large");
+		return NULL;
 	ret = xmalloc(srclen + 1);
 	for (dst = ret; *src != '\0'; src++) {
 		switch (*src) {
@@ -1036,9 +1071,10 @@ urldecode(const char *src)
 			*dst++ = ' ';
 			break;
 		case '%':
+			/* note: don't allow \0 characters */
 			if (!isxdigit((unsigned char)src[1]) ||
 			    !isxdigit((unsigned char)src[2]) ||
-			    (ch = hexchar(src + 1)) == -1) {
+			    (ch = hexchar(src + 1)) == -1 || ch == 0) {
 				free(ret);
 				return NULL;
 			}
@@ -1096,16 +1132,6 @@ parse_uri(const char *scheme, const char *uri, char **userp, char **hostp,
 	if ((cp = strchr(tmp, '@')) != NULL) {
 		char *delim;
 
-#ifdef WINDOWS
-		/* TODO - This looks to be a core bug in unix code as user can be in UPN format
-		 *  The above line should be strrchr() instead of strchr.
-		 *  For time being, special handling when username is in User@domain format
-		 */
-
-		char *cp_1 = cp;
-		if ((cp_1 = strchr(cp + 1, '@')) != NULL)
-			cp = cp_1;
-#endif
 		*cp = '\0';
 		/* Extract username and connection params */
 		if ((delim = strchr(tmp, ';')) != NULL) {
@@ -1241,16 +1267,15 @@ freeargs(arglist *args)
 
 #ifdef WINDOWS
 void
-duplicateargs(arglist *dest, const arglist *source)
+duplicateargs(arglist *dst, const arglist *src)
 {
-	if (!source || !dest)
-		return;
+	u_int i;
 
-	if (source->list != NULL) {
-		for (int i = 0; i < source->num; i++) {
-			addargs(dest, "%s", source->list[i]);
-		}
-	}
+	if (dst == NULL || src == NULL)
+		fatal_f("NULL arglist");
+	memset(dst, 0, sizeof(*dst));
+	for (i = 0; i < src->num; i++)
+		addargs(dst, "%s", src->list[i]);
 }
 #endif
 
@@ -1282,15 +1307,6 @@ tilde_expand(const char *filename, uid_t uid, char **retp)
 			path = NULL;			/* ~/ */
 		else
 			path = copy;			/* ~/path */
-#ifdef WINDOWS
-	// also need to account for backward slashes on Windows
-	} else if (*copy == '\\') {
-		copy += strspn(copy, "\\");
-		if (*copy == '\0')
-			path = NULL;			/* ~\ */
-		else
-			path = copy;			/* ~\path */
-#endif /* WINDOWS */
 	} else {
 		user = copy;
 		if ((path = strchr(copy, '/')) != NULL) {
@@ -1668,66 +1684,66 @@ xextendf(char **sp, const char *sep, const char *fmt, ...)
 }
 
 
-u_int64_t
+uint64_t
 get_u64(const void *vp)
 {
 	const u_char *p = (const u_char *)vp;
-	u_int64_t v;
+	uint64_t v;
 
-	v  = (u_int64_t)p[0] << 56;
-	v |= (u_int64_t)p[1] << 48;
-	v |= (u_int64_t)p[2] << 40;
-	v |= (u_int64_t)p[3] << 32;
-	v |= (u_int64_t)p[4] << 24;
-	v |= (u_int64_t)p[5] << 16;
-	v |= (u_int64_t)p[6] << 8;
-	v |= (u_int64_t)p[7];
+	v  = (uint64_t)p[0] << 56;
+	v |= (uint64_t)p[1] << 48;
+	v |= (uint64_t)p[2] << 40;
+	v |= (uint64_t)p[3] << 32;
+	v |= (uint64_t)p[4] << 24;
+	v |= (uint64_t)p[5] << 16;
+	v |= (uint64_t)p[6] << 8;
+	v |= (uint64_t)p[7];
 
 	return (v);
 }
 
-u_int32_t
+uint32_t
 get_u32(const void *vp)
 {
 	const u_char *p = (const u_char *)vp;
-	u_int32_t v;
+	uint32_t v;
 
-	v  = (u_int32_t)p[0] << 24;
-	v |= (u_int32_t)p[1] << 16;
-	v |= (u_int32_t)p[2] << 8;
-	v |= (u_int32_t)p[3];
+	v  = (uint32_t)p[0] << 24;
+	v |= (uint32_t)p[1] << 16;
+	v |= (uint32_t)p[2] << 8;
+	v |= (uint32_t)p[3];
 
 	return (v);
 }
 
-u_int32_t
+uint32_t
 get_u32_le(const void *vp)
 {
 	const u_char *p = (const u_char *)vp;
-	u_int32_t v;
+	uint32_t v;
 
-	v  = (u_int32_t)p[0];
-	v |= (u_int32_t)p[1] << 8;
-	v |= (u_int32_t)p[2] << 16;
-	v |= (u_int32_t)p[3] << 24;
+	v  = (uint32_t)p[0];
+	v |= (uint32_t)p[1] << 8;
+	v |= (uint32_t)p[2] << 16;
+	v |= (uint32_t)p[3] << 24;
 
 	return (v);
 }
 
-u_int16_t
+uint16_t
 get_u16(const void *vp)
 {
 	const u_char *p = (const u_char *)vp;
-	u_int16_t v;
+	uint16_t v;
 
-	v  = (u_int16_t)p[0] << 8;
-	v |= (u_int16_t)p[1];
+	v  = (uint16_t)p[0] << 8;
+	v |= (uint16_t)p[1];
 
 	return (v);
 }
 
 void
-put_u64(void *vp, u_int64_t v)
+put_u64(void *vp, uint64_t v)
 {
 	u_char *p = (u_char *)vp;
 
@@ -1742,7 +1758,7 @@ put_u64(void *vp, u_int64_t v)
 }
 
 void
-put_u32(void *vp, u_int32_t v)
+put_u32(void *vp, uint32_t v)
 {
 	u_char *p = (u_char *)vp;
 
@@ -1753,7 +1769,7 @@ put_u32(void *vp, u_int32_t v)
 }
 
 void
-put_u32_le(void *vp, u_int32_t v)
+put_u32_le(void *vp, uint32_t v)
 {
 	u_char *p = (u_char *)vp;
 
@@ -1764,7 +1780,7 @@ put_u32_le(void *vp, u_int32_t v)
 }
 
 void
-put_u16(void *vp, u_int16_t v)
+put_u16(void *vp, uint16_t v)
 {
 	u_char *p = (u_char *)vp;
 
@@ -1838,7 +1854,7 @@ monotime(void)
 	struct timespec ts;
 
 	monotime_ts(&ts);
-	return ts.tv_sec;
+	return (ts.tv_sec);
 }
 
 double
@@ -1847,11 +1863,11 @@ monotime_double(void)
 	struct timespec ts;
 
 	monotime_ts(&ts);
-	return ts.tv_sec + ((double)ts.tv_nsec / 1000000000);
+	return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
 }
 
 void
-bandwidth_limit_init(struct bwlimit *bw, u_int64_t kbps, size_t buflen)
+bandwidth_limit_init(struct bwlimit *bw, uint64_t kbps, size_t buflen)
 {
 	bw->buflen = buflen;
 	bw->rate = kbps;
@@ -1865,7 +1881,7 @@ bandwidth_limit_init(struct bwlimit *bw, u_int64_t kbps, size_t buflen)
 void
 bandwidth_limit(struct bwlimit *bw, size_t read_len)
 {
-	u_int64_t waitlen;
+	uint64_t waitlen;
 	struct timespec ts, rm;
 
 	bw->lamt += read_len;
@@ -1920,15 +1936,7 @@ mktemp_proto(char *s, size_t len)
 	const char *tmpdir;
 	int r;
 
-	tmpdir = getenv("TMPDIR");
-
-#ifdef WINDOWS
-	if (tmpdir == NULL) {
-		tmpdir = getenv("TEMP");
-	}
-#endif
-
-	if (tmpdir != NULL) {
+	if ((tmpdir = getenv("TMPDIR")) != NULL) {
 		r = snprintf(s, len, "%s/ssh-XXXXXXXXXXXX", tmpdir);
 		if (r > 0 && (size_t)r < len)
 			return;
@@ -1965,9 +1973,10 @@ static const struct {
 	{ "cs7", IPTOS_DSCP_CS7 },
 	{ "ef", IPTOS_DSCP_EF },
 	{ "le", IPTOS_DSCP_LE },
-	{ "lowdelay", IPTOS_LOWDELAY },
-	{ "throughput", IPTOS_THROUGHPUT },
-	{ "reliability", IPTOS_RELIABILITY },
+	{ "va",	IPTOS_DSCP_VA },
+	{ "lowdelay", INT_MIN },	/* deprecated */
+	{ "throughput", INT_MIN },	/* deprecated */
+	{ "reliability", INT_MIN },	/* deprecated */
 	{ NULL, -1 }
 };
 
@@ -2062,7 +2071,7 @@ sock_set_v6only(int s)
 #if defined(IPV6_V6ONLY) && !defined(__OpenBSD__)
 	int on = 1;
 
-	debug3("%s: set socket %d IPV6_V6ONLY", __func__, s);
+	debug3_f("set socket %d IPV6_V6ONLY", s);
 	if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on)) == -1)
 		error("setsockopt IPV6_V6ONLY: %s", strerror(errno));
 #endif
@@ -2119,14 +2128,6 @@ permitopen_port(const char *p)
 }
 
 /* returns 1 if process is already daemonized, 0 otherwise */
-#ifdef WINDOWS
-/* This should go away once sshd platform specific startup code is refactored */
-int
-daemonized(void)
-{
-	return 1;
-}
-#else /* !WINDOWS */
 int
 daemonized(void)
 {
@@ -2136,14 +2137,15 @@ daemonized(void)
 		close(fd);
 		return 0;	/* have controlling terminal */
 	}
+#ifndef WINDOWS
 	if (getppid() != 1)
 		return 0;	/* parent is not init */
+#endif
 	if (getsid(0) != getpid())
 		return 0;	/* not session leader */
 	debug3("already daemonized");
 	return 1;
 }
-#endif /* !WINDOWS */
 
 /*
  * Splits 's' into an argument vector. Handles quoted string and basic
@@ -2343,7 +2345,7 @@ int
 safe_path(const char *name, struct stat *stp, const char *pw_dir,
     uid_t uid, char *err, size_t errlen)
 {
-	char buf[PATH_MAX], homedir[PATH_MAX];
+	char buf[PATH_MAX], buf2[PATH_MAX], homedir[PATH_MAX];
 	char *cp;
 	int comparehome = 0;
 	struct stat st;
@@ -2369,7 +2371,12 @@ safe_path(const char *name, struct stat *stp, const char *pw_dir,
 
 	/* for each component of the canonical path, walking upwards */
 	for (;;) {
-		if ((cp = dirname(buf)) == NULL) {
+		/*
+		 * POSIX allows dirname to modify its argument and return a
+		 * pointer into it, so make a copy to avoid overlapping strlcpy.
+		 */
+		strlcpy(buf2, buf, sizeof(buf2));
+		if ((cp = dirname(buf2)) == NULL) {
 			snprintf(err, errlen, "dirname() failed");
 			return -1;
 		}
@@ -2384,7 +2391,7 @@ safe_path(const char *name, struct stat *stp, const char *pw_dir,
 		}
 
 		/* If are past the homedir then we can stop */
-		if (comparehome && strcmp(homedir, buf) == 0) // CodeQL [SM01714] false positive: homedir is null terminated
+		if (comparehome && strcmp(homedir, buf) == 0)
 			break;
 
 		/*
@@ -2624,8 +2631,10 @@ format_absolute_time(uint64_t t, char *buf, size_t len)
 	time_t tt = t > SSH_TIME_T_MAX ? SSH_TIME_T_MAX : t;
 	struct tm tm;
 
-	localtime_r(&tt, &tm);
-	strftime(buf, len, "%Y-%m-%dT%H:%M:%S", &tm);
+	if (localtime_r(&tt, &tm) == NULL)
+		strlcpy(buf, "UNKNOWN-TIME", len);
+	else
+		strftime(buf, len, "%Y-%m-%dT%H:%M:%S", &tm);
 }
 
 /*
@@ -2670,6 +2679,9 @@ int
 path_absolute(const char *path)
 {
 #ifdef WINDOWS
+	/* Delegate to the Windows-aware implementation which also handles
+	 * __PROGRAMDATA__\... style paths used throughout the Windows port. */
+	extern int is_absolute_path(const char *);
 	return is_absolute_path(path);
 #else
 	return (*path == '/') ? 1 : 0;
@@ -2799,9 +2811,6 @@ opt_array_free2(char **array, int **iarray, u_int l)
 sshsig_t
 ssh_signal(int signum, sshsig_t handler)
 {
-#ifdef WINDOWS
-	return signal(signum, handler);
-#else
 	struct sigaction sa, osa;
 
 	/* mask all other signals while in handler */
@@ -2817,7 +2826,6 @@ ssh_signal(int signum, sshsig_t handler)
 		return SIG_ERR;
 	}
 	return osa.sa_handler;
-#endif // WINDOWS
 }
 
 int
@@ -2904,18 +2912,11 @@ subprocess(const char *tag, const char *command,
 		    av[0], strerror(errno));
 		goto restore_return;
 	}
-
 	if ((flags & SSH_SUBPROCESS_UNSAFE_PATH) == 0 &&
-#ifdef WINDOWS
-	    (check_secure_file_permission(av[0], pw, 1) != 0)) {
-		error("Permissions on %s:\"%s\" are too open", tag, av[0]);
-#else
 	    safe_path(av[0], &st, NULL, 0, errmsg, sizeof(errmsg)) != 0) {
 		error("Unsafe %s \"%s\": %s", tag, av[0], errmsg);
-#endif
 		goto restore_return;
 	}
-
 	/* Prepare to keep the child's stdout if requested */
 	if (pipe(p) == -1) {
 		error("%s: pipe: %s", tag, strerror(errno));
@@ -2927,37 +2928,6 @@ subprocess(const char *tag, const char *command,
 	if (restore_privs != NULL)
 		restore_privs();
 
-#ifdef FORK_NOT_SUPPORTED
-	{
-		posix_spawn_file_actions_t actions;
-		pid = -1;
-
-		if (posix_spawn_file_actions_init(&actions) != 0 ||
-			posix_spawn_file_actions_adddup2(&actions, p[1], STDOUT_FILENO) != 0)
-			fatal("posix_spawn initialization failed");
-		else {
-#ifdef WINDOWS
-			extern PSID get_sid(const char*);
-			/* If the user's SID is the System SID and sshd is running as system,
-			 * launch as a child process.
-			 */
-			if (IsWellKnownSid(get_sid(pw->pw_name), WinLocalSystemSid) && am_system()) {
-				debug("starting subprocess using posix_spawnp");
-				if (posix_spawnp((pid_t*)&pid, av[0], &actions, NULL, av, NULL) != 0)
-					fatal("posix_spawnp: %s", strerror(errno));
-			}
-			else
-#endif
-			{
-				debug("starting subprocess as user using __posix_spawn_asuser");
-				if (__posix_spawn_asuser((pid_t*)&pid, av[0], &actions, NULL, av, NULL, pw->pw_name) != 0)
-					fatal("posix_spawn_user: %s", strerror(errno));
-			}
-		}
-
-		posix_spawn_file_actions_destroy(&actions);
-	}
-#else
 	switch ((pid = fork())) {
 	case -1: /* error */
 		error("%s: fork: %s", tag, strerror(errno));
@@ -3034,7 +3004,7 @@ subprocess(const char *tag, const char *command,
 	default: /* parent */
 		break;
 	}
-#endif
+
 	close(p[1]);
 	if ((flags & SSH_SUBPROCESS_STDOUT_CAPTURE) == 0)
 		close(p[0]);
@@ -3193,8 +3163,7 @@ ptimeout_isset(struct timespec *pt)
 int
 lib_contains_symbol(const char *path, const char *s)
 {
-#ifndef WINDOWS
-#ifdef HAVE_NLIST_H
+#ifdef HAVE_NLIST
 	struct nlist nl[2];
 	int ret = -1, r;
 
@@ -3214,11 +3183,12 @@ lib_contains_symbol(const char *path, const char *s)
  out:
 	free(nl[0].n_name);
 	return ret;
-#else /* HAVE_NLIST_H */
+#else /* HAVE_NLIST */
 	int fd, ret = -1;
 	struct stat st;
 	void *m = NULL;
 	size_t sz = 0;
+	ssize_t n = 0;
 
 	memset(&st, 0, sizeof(st));
 	if ((fd = open(path, O_RDONLY)) < 0) {
@@ -3240,9 +3210,13 @@ lib_contains_symbol(const char *path, const char *s)
 		goto out;
 	}
 	sz = (size_t)st.st_size;
-	if ((m = mmap(NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0)) == MAP_FAILED ||
-	    m == NULL) {
-		error_f("mmap %s: %s", path, strerror(errno));
+	if ((m = malloc(sz)) == NULL) {
+		error_f("malloc %zu", sz);
+		goto out;
+	}
+	if ((n = read(fd, m, sz)) < 0 || (size_t)n != sz) {
+		error_f("read %s: %s", path,
+		    n < 0 ? strerror(errno) : "short read");
 		goto out;
 	}
 	if (memmem(m, sz, s, strlen(s)) == NULL) {
@@ -3252,14 +3226,10 @@ lib_contains_symbol(const char *path, const char *s)
 	/* success */
 	ret = 0;
  out:
-	if (m != NULL && m != MAP_FAILED)
-		munmap(m, sz);
+	free(m);
 	close(fd);
 	return ret;
-#endif /* HAVE_NLIST_H */
-#else /* WINDOWS */
-	return 0;
-#endif /* WINDOWS */
+#endif /* HAVE_NLIST */
 }
 
 int
@@ -3276,4 +3246,19 @@ signal_is_crash(int sig)
 		return 1;
 	}
 	return 0;
+}
+
+char *
+get_homedir(void)
+{
+	char *cp;
+	struct passwd *pw;
+
+	if ((cp = getenv("HOME")) != NULL && *cp != '\0')
+		return xstrdup(cp);
+
+	if ((pw = getpwuid(getuid())) != NULL && *pw->pw_dir != '\0')
+		return xstrdup(pw->pw_dir);
+
+	return NULL;
 }
