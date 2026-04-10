@@ -16,6 +16,8 @@
 
 /* sftp client user/group lookup and caching */
 
+#include <glob.h>
+
 /* Lookup uids/gids and populate cache */
 void get_remote_user_groups_from_glob(struct sftp_conn *conn, glob_t *g);
 void get_remote_user_groups_from_dirents(struct sftp_conn *conn, SFTP_DIRENT **d);
