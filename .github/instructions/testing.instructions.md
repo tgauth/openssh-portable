@@ -107,13 +107,13 @@ In this scenario, do not create a temporary local user and random password. Inst
 ### Steps
 1. Open terminal A in the build output directory and run sshd in foreground debug mode:
 ```pwsh
-cd .\contrib\win32\openssh\x64\Release
+cd .\bin\x64\Release
 .\sshd.exe -ddd
 ```
 
 2. Open terminal B and attempt local key-based connection:
 ```pwsh
-ssh localhost
+.\ssh.exe localhost
 ```
 
 3. Confirm validation success by checking both sides:
@@ -124,6 +124,8 @@ ssh localhost
 - This mode is intended for machines that already have admin key-based auth configured.
 - Keep `sshd -ddd` running only for validation and stop it after the test.
 - Use this scenario instead of `Test-OpenSSHFunctionality` when declared in the prompt.
+- Use the rebuilt client and server from the same output directory (`.\bin\x64\Release`) to avoid version-mismatch handshake artifacts.
+- Do not run extra port probes (for example `Test-NetConnection localhost -Port 22`) between starting `sshd -ddd` and the first `ssh` attempt; probes can consume the one foreground debug session and produce misleading connection-reset/refused behavior.
 
 ## Manual Testing Procedures (For Troubleshooting Only)
 
@@ -276,8 +278,8 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
    - **Parameters**: (use defaults)
 
   If the prompt declares `Validation scenario=entra-id-debug-localhost`, use the Entra-ID debug localhost flow instead:
-  - Run `.\sshd.exe -ddd` in one terminal
-  - Run `ssh localhost` in another terminal
+  - Run `.\sshd.exe -ddd` in one terminal from `.\bin\x64\Release`
+  - Run `.\ssh.exe localhost` in another terminal from `.\bin\x64\Release`
   - Report outcome from both client connection behavior and server debug logs
 
 2. **If test passes**, the merge is validated for basic SSH functionality

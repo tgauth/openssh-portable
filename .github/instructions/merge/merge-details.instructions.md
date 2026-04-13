@@ -215,12 +215,31 @@ FUNCTION add_source_to_project(project_file, source_file):
     insert_into_project_file(project_file, new_line)
 ```
 
+### Pattern 4: OpenSSH 10.3 Split-sshd State Ordering (Windows)
+
+When upstream changes split pre-auth work between `sshd-session` and `sshd-auth`, preserve the state/message ordering exactly.
+
+- `sshd-session` (listener/monitor side) should not perform banner exchange that upstream moved to `sshd-auth`.
+- For Windows `FORK_NOT_SUPPORTED` post-auth child (`sshd-session -z`), monitor message order matters:
+    - Receive identification-exchange state first.
+    - Then receive authenticated user context.
+
+If this ordering is wrong, common symptoms are:
+- pre-auth failures such as banner parsing or signature mismatches
+- post-auth `Invalid user` with empty username
+- monitor keystate errors like `incomplete message`
+
 ## Common Conflict Patterns
 
 ### File System Operations
 - **Fork/exec calls** → Use Windows process creation APIs
 - **Signal handling** → Use Windows event mechanisms
 - **File permissions** → Adapt to Windows ACL model
+
+### Privsep and Monitor State Transitions (Windows)
+- For split `sshd-session` / `sshd-auth` flows, keep sender/receiver message ordering identical across monitor channels.
+- Do not add ad-hoc state shuttling unless both sender and receiver are updated in lockstep.
+- When debugging, verify the first protocol failure point (banner exchange vs KEX vs post-auth keystate) before changing multiple stages at once.
 
 ### Build System Changes
 - **Makefile additions** → Update Visual Studio project files (use `\r\n` line endings)
