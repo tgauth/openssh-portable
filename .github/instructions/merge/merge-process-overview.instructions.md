@@ -321,12 +321,17 @@ The process consists of several interconnected phases:
     - Title: `Merge upstream OpenSSH <VERSION>`
     - Include comprehensive description of changes and resolutions
 
-16. **Address CI/test failures:**
+16. **Normalize upstream workflow triggers for Windows fork:**
+    - Ensure merged upstream workflow files under `.github/workflows/*.yml` are dispatch-only in this fork.
+    - Keep `workflow_dispatch` enabled and disable automatic triggers (`push`, `pull_request`, `schedule`) unless explicitly required for this fork.
+    - Preserve trigger blocks as commented context where practical so future re-syncs are straightforward.
+
+17. **Address CI/test failures:**
     - Monitor automated tests
     - Fix any Windows-specific test failures
     - Ensure all checks pass
 
-17. **Request review:**
+18. **Request review:**
     - Tag appropriate PowerShell team reviewers
     - Provide context for complex conflict resolutions
 
@@ -339,6 +344,7 @@ The process consists of several interconnected phases:
 - [ ] Solution builds successfully on Windows
 - [ ] Basic SSH connection test passes
 - [ ] All CI tests pass
+- [ ] Upstream workflow triggers normalized to dispatch-only for this fork
 - [ ] PR approved and ready for merge
 
 ---

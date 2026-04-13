@@ -579,7 +579,25 @@ FUNCTION prepare_pull_request():
         labels: ["upstream-merge", determine_complexity_label()],
         assignees: get_default_reviewers()
     }
+
+FUNCTION normalize_fork_workflow_triggers():
+    workflow_files = list_files(".github/workflows/*.yml")
+
+    FOR EACH wf IN workflow_files:
+        // Policy for PowerShell Windows fork: dispatch-only upstream workflows
+        ensure_trigger_enabled(wf, "workflow_dispatch")
+        disable_trigger(wf, "push")
+        disable_trigger(wf, "pull_request")
+        disable_trigger(wf, "schedule")
+
+    RETURN "workflow triggers normalized for fork policy"
 ```
+
+### Workflow Trigger Policy (Windows Fork)
+- Upstream workflow files merged into this fork should default to manual invocation only.
+- Keep `workflow_dispatch` active.
+- Disable automatic triggers (`push`, `pull_request`, `schedule`) unless the Windows fork explicitly depends on them.
+- During final merge review, verify `.github/workflows/*.yml` trigger blocks are policy-compliant.
 
 ## Commit Message Template
 
