@@ -18,7 +18,7 @@ Ensure the following tools are installed and configured before proceeding:
 ## Process Overview
 The merge process uses a **two-phase approach** to preserve upstream commit history while keeping conflict resolution manageable:
 
-1. **Scratch branch** — Incremental `git merge` at batch boundaries. Build and test after each batch. Every conflict resolution is recorded via `git rerere` and a resolution log.
+1. **Scratch branch** — Incremental `git merge` at batch boundaries. Build and run the full CI test suite after each batch. Every conflict resolution is recorded via `git rerere` and a resolution log.
 2. **Real branch** — A single `git merge` of the final upstream target. Recorded resolutions are replayed automatically. This produces one merge commit with all upstream SHAs intact.
 
 The process consists of several interconnected phases:
@@ -196,16 +196,19 @@ The process consists of several interconnected phases:
      ```
      Commit any build fixes separately with descriptive messages (only actual code changes)
 
-10. **Validate if batch ended with successful CI:**
-    Check the end commit's CI status from Get-CommitGroups output.
-    If CI was successful, run validation:
-    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
-    - **Parameters**: (use defaults for Release/x64)
+10. **Run full CI validation after every batch (mandatory):**
+    Run the full OpenSSH CI suite regardless of upstream CI status for the batch endpoint.
+    - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
+    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`, `TestSuite="All"`
 
-    If no CI or failed CI, skip validation (build success is sufficient).
+    If any suite fails:
+    - Capture failing suite details from tool output
+    - Re-run only the failing suite to iterate faster (`TestSuite="Unit"`, `TestSuite="Bash"`, or `TestSuite="E2E"`)
+    - For a single failing bash case, use `TestSuite="Bash"` and `BashTestFilePath="<absolute-path-to-test.sh>"`
+    - Fix issues and re-run full suite before proceeding to the next batch
 
 11. **Provide summary and get approval:**
-    - Summarize batch changes, conflicts resolved, build status, validation status
+    - Summarize batch changes, conflicts resolved, build status, and full CI suite status (Unit/Bash/E2E)
     - Wait for user approval before proceeding to next batch
     - Document next steps (starting commit for next batch)
     - After all batches complete on the scratch branch, proceed to the Real Branch Phase

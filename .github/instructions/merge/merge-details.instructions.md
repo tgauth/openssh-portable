@@ -10,14 +10,14 @@ This AI-specific documentation provides comprehensive instructions and algorithm
 **Key Approach: Two-Phase Merge with Scratch Branch**
 Instead of cherry-picking commits (which rewrites history), this framework implements a two-phase approach:
 
-1. **Scratch branch** — Incremental `git merge` at batch boundaries (grouped by CI presence). Build and test after each batch. Every conflict resolution is recorded via `git rerere` and the Save-MergeResolution MCP tool.
+1. **Scratch branch** — Incremental `git merge` at batch boundaries (grouped by CI presence). Build and run the full CI test suite after each batch. Every conflict resolution is recorded via `git rerere` and the Save-MergeResolution MCP tool.
 2. **Real branch** — A single `git merge` of the final upstream target. Recorded resolutions replay automatically via `git rerere` and Replay-MergeResolutions. This produces one merge commit with all upstream SHAs intact.
 
 Benefits:
 - Preserves upstream commit history exactly (original SHAs, authors, timestamps)
 - Uses incremental merge on scratch branch so conflict markers match the final merge (maximising `rerere` replay)
 - Builds after each batch on scratch branch (mandatory) for early error detection
-- Validates functionality only at successful CI checkpoints
+- Runs the full CI test suite after each batch (mandatory), independent of upstream CI status
 - Requires user approval before proceeding to next batch
 - Allows for incremental progress and easier rollback
 - Reduces complexity of conflict resolution
@@ -346,6 +346,16 @@ FUNCTION determine_fix_strategy(error):
 - Do NOT skip `Test-OpenSSHBuild.ps1` even when build succeeds - warning checks are mandatory.
 - On the scratch branch, commit build fixes after each batch merge commit.
 - On the real branch, apply the same build fixes as separate commits after the single merge commit.
+
+### Batch Test Invocation Policy (Scratch Branch)
+
+- After each batch merge is completed and builds cleanly, run the full CI test suite:
+    - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
+    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`, `TestSuite="All"`
+- This is mandatory for every batch, regardless of whether the upstream endpoint commit had successful CI.
+- If any suite fails, re-run only the failing suite while fixing (`TestSuite="Unit"`, `TestSuite="Bash"`, `TestSuite="E2E"`).
+- For bash triage, run a single failing test with `BashTestFilePath`.
+- Do not proceed to the next batch until the full suite passes (or user explicitly approves an exception).
 
 ## Testing Automation Framework
 

@@ -98,6 +98,92 @@ The MCP tool performs comprehensive end-to-end testing including:
 - Before creating pull requests
 - When debugging SSH connectivity issues
 
+## Full CI Test Suite
+
+For thorough validation (e.g., before submitting a PR or after a significant merge), run the complete CI test suite: unit tests, bash regression tests, and Pester E2E tests.
+
+Reference: https://github.com/PowerShell/Win32-OpenSSH/wiki/Run-OpenSSH-Pester-Tests
+
+### Using the Invoke-OpenSSHTests MCP Tool (Recommended)
+
+Use the Invoke-OpenSSHTests MCP tool:
+- **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
+- **Parameters**:
+  - `Configuration` (optional): "Debug" or "Release" (default: "Release")
+  - `Architecture` (optional): "x64", "x86", "ARM", "ARM64" (default: "x64")
+  - `TestSuite` (optional): "All", "Unit", "Bash", "E2E" — one or more values (default: "All")
+  - `BashTestFilePath` (optional): Absolute path to a single `.sh` test file for targeted bash testing (e.g., `C:\repos\openssh-portable\regress\banner.sh`)
+  - `BashShellPath` (optional): Path to `sh.exe` — auto-detected from common Cygwin locations if omitted
+  - `NoCleanup` (optional): Skip `Clear-OpenSSHTestEnvironment` after the run (default: false)
+  - `SkipSetup` (optional): Skip `Set-OpenSSHTestEnvironment` when environment is already configured (default: false)
+
+**The tool returns a structured result with:**
+- `Success`: Overall pass/fail
+- `UnitTestsPassed`, `BashTestsPassed`, `E2ETestsPassed`: Per-suite results (`$true`/`$false`/`$null` if not run)
+- `UnitTestOutput`, `BashTestOutput`, `E2ETestOutput`: Captured output for each suite
+- `Errors`: Array of failure messages
+- `Warnings`: Known gotchas and environment notes
+- `Message`: Summary
+
+**Examples:**
+- Run full suite: (no parameters needed)
+- Run only E2E tests: `TestSuite="E2E"`
+- Run a single bash test: `TestSuite="Bash"`, `BashTestFilePath="C:\repos\openssh-portable\regress\banner.sh"`
+
+### Manually Running the Full CI Suite
+
+Binaries are expected at `C:\repos\openssh-portable\bin\{Architecture}\{Configuration}`.
+
+```pwsh
+# 1. Import the test helper module
+Import-Module C:\repos\openssh-portable\contrib\win32\openssh\OpenSSHTestHelper.psm1 -Force
+
+# 2. Configure the test environment (installs test accounts, sshd test service, etc.)
+#    This modifies known_hosts and ssh_config; run Clear-OpenSSHTestEnvironment to undo.
+Set-OpenSSHTestEnvironment -OpenSSHBinPath "C:\repos\openssh-portable\bin\x64\Release" -Confirm:$false
+
+# 3. Run unit tests (unittest-*.exe binaries in the bin folder)
+Invoke-OpenSSHUnitTest
+
+# 4. Run bash regression tests (requires Cygwin sh.exe)
+Invoke-OpenSSHBashTests
+
+# 5. Run Pester E2E tests
+Invoke-OpenSSHE2ETest
+
+# 6. Clean up test accounts, service, and ssh config changes
+Clear-OpenSSHTestEnvironment
+```
+
+### Running a Single Bash Test
+
+Use `bash_tests_iterator.ps1` to run one bash test file in isolation:
+
+```pwsh
+.\contrib\win32\openssh\bash_tests_iterator.ps1 `
+    -OpenSSHBinPath "C:\repos\openssh-portable\bin\x64\Release" `
+    -BashTestsPath  "C:\repos\openssh-portable\regress" `
+    -ShellPath      "C:\cygwin64\bin\sh.exe" `
+    -TestFilePath   "C:\repos\openssh-portable\regress\banner.sh"
+```
+
+### Known CI Test Gotchas
+
+**`cfginclude.sh` — wrong PowerShell executable:**
+The test calls `powershell.exe` directly. When running under `pwsh.exe`, the test will fail unless the file is edited to replace `powershell.exe` with `pwsh.exe`.
+See: https://github.com/PowerShell/PowerShell/issues/18530#issuecomment-1325691850
+
+**WSMan / Port Forwarding tests — disabled on some VMs:**
+The WSMan and port-forwarding Pester tests may fail on VMs where these Windows features are disabled by default. Options:
+- Enable the features: turn on "Windows Remote Management" and ensure port-forward firewall rules are allowed.
+- Skip the affected test files (e.g., `PortForwarding.Tests.ps1`) when running `Invoke-OpenSSHE2ETest` for routine validation.
+
+**Pester version requirement:**
+The E2E tests require **Pester version < 5**. The helper module will attempt to install Pester 3.4.6 via chocolatey if a compatible version is not found.
+
+**Cygwin required for bash tests:**
+`Invoke-OpenSSHBashTests` auto-detects `sh.exe` at `%SystemDrive%\cygwin64\bin\sh.exe`, `%SystemDrive%\cygwin\bin\sh.exe`, or `%SystemDrive%\tools\cygwin\bin\sh.exe`. If none is found it installs Cygwin via chocolatey. Provide `-BashShellPath` to the MCP tool to override.
+
 ## Validation Scenario Override: Entra-ID Debug Localhost
 
 Use this scenario when the prompt explicitly declares `Validation scenario=entra-id-debug-localhost`.
@@ -286,7 +372,13 @@ Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*SSH*"}
 
 3. **If test fails**, use manual procedures and debug mode to diagnose issues
 
-4. **Document results** in commit message or merge documentation
+4. **For full CI validation** (e.g., before creating a PR), run the complete test suite:
+   - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
+   - **Parameters**: (use defaults to run all suites)
+   - If a specific suite fails, re-run it in isolation using `TestSuite="Unit"`, `TestSuite="Bash"`, or `TestSuite="E2E"`
+   - For a single failing bash test: `TestSuite="Bash"`, `BashTestFilePath="<path-to-test.sh>"`
+
+5. **Document results** in commit message or merge documentation
 
 ## Manual Test Environment Cleanup
 
