@@ -60,6 +60,10 @@
 #define BENCH_COLUMN_WIDTH	40
 
 #define MINIMUM(a, b)    (((a) < (b)) ? (a) : (b))
+
+#ifndef CLOCK_REALTIME
+# define CLOCK_REALTIME 0
+#endif
  
 #define TEST_CHECK_INT(r, pred) do {		\
 		switch (pred) {			\
@@ -450,7 +454,6 @@ assert_string(const char *file, int line, const char *a1, const char *a2,
 	test_die();
 }
 
-<<<<<<< HEAD
 static char *
 tohex(const void *_s, size_t l)
 {
@@ -468,8 +471,6 @@ tohex(const void *_s, size_t l)
 	return r;
 }
 
-=======
->>>>>>> f3d465530e75cb6c02e2cde1d15e6c4bb51ebfd9
 void
 assert_mem(const char *file, int line, const char *a1, const char *a2,
     const void *aa1, const void *aa2, size_t l, enum test_predicate pred)
