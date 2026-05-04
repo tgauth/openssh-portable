@@ -461,6 +461,7 @@
     <ClCompile Include="$(OpenSSH-Src-Path)sandbox-capsicum.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)sandbox-darwin.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)sandbox-null.c" />
+    <ClCompile Include="$(OpenSSH-Src-Path)misc-agent.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)sandbox-rlimit.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)sandbox-seccomp-filter.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)servconf.c" />

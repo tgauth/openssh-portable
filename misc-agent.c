@@ -13,7 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
+#include "includes.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -217,6 +217,7 @@ agent_listener(const char *homedir, const char *tag, int *sockp, char **pathp)
 	return 0;
 }
 
+#ifndef WINDOWS
 static int
 socket_is_stale(const char *path)
 {
@@ -326,4 +327,5 @@ agent_cleanup_stale(const char *homedir, int ignore_hosthash)
 	free(dirpath);
 	free(prefix);
 }
+#endif /* !WINDOWS */
 
