@@ -352,7 +352,9 @@
 /* #undef HAVE_DIRENT_H */
 
 /* Define to 1 if you have the `dirfd' function. */
-/* #undef HAVE_DIRFD */
+/* Defined on Windows to suppress upstream's dirfd() compat prototype which
+ * pulls in <dirent.h> and conflicts with the win32compat mkdir macro mapping. */
+#define HAVE_DIRFD 1
 
 /* Define to 1 if you have the `dirname' function. */
 /* #define HAVE_DIRNAME 1 */
