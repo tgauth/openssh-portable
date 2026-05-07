@@ -10,7 +10,7 @@ case "$host" in
 *cygwin)
 	PACKAGER=setup
 	echo Setting CYGWIN system environment variable.
-	setx CYGWIN "binmode"
+	setx CYGWIN "winsymlinks:native"
 	echo Removing extended ACLs so umask works as expected.
 	set -x
 	setfacl -b . regress
@@ -192,7 +192,8 @@ while [ ! -z "$PACKAGES" ] && [ "$tries" -gt "0" ]; do
 	fi
 	;;
     setup)
-	if /cygdrive/d/cygwin/setup.exe -q -P `echo "$PACKAGES" | tr ' ' ,`; then
+	setup="/cygdrive/$(echo "${CYGWIN_SETUP}" | tr -d : | tr '\' '/')"
+	if "${setup}" -q -P `echo "$PACKAGES" | tr ' ' ,`; then
 		PACKAGES=""
 	fi
 	;;
