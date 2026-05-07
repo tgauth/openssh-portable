@@ -100,6 +100,16 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Status: `git status`
    - Remotes: `origin`, `upstream-pwsh`, `upstream`
 
+8. **vcpkg dependency management** - Vendored library installation and updates
+   - **Install tool**: `.\.github\tools\Install-VcpkgDependencies.ps1` (also exposed via MCP as `mcp_openssh-server_Install_VcpkgDependencies` when registered).
+     - When to use: build fails because `contrib/win32/openssh/vcpkg_installed/<triplet>-custom/` is missing (e.g., on a fresh clone or after `vcpkg.json` changes).
+     - First-time setup: run with `-Bootstrap`. Multi-arch parity with CI: `-Architecture x64,x86,ARM,ARM64`.
+     - Default `-Architecture` matches `Start-OpenSSHBuild` (`x64`).
+   - **Update skill**: [.github/skills/update-vcpkg-port/SKILL.md](../skills/update-vcpkg-port/SKILL.md).
+     - When to use: an upstream merge bumps a vendored dependency (libressl, libfido2, libcbor, zlib), or upstream OpenSSH starts requiring a newer minimum.
+     - The skill orchestrates `Update-VcpkgPort.ps1`, walks the patch-rejection decision tree, validates with the install tool and a build, and produces a commit message.
+   - **Reference**: [vcpkg.instructions.md](../instructions/vcpkg.instructions.md) for layout, custom triplets, and overlay-port rationale.
+
 ## Workflow Phases
 
 ### Phase 0: Research and Planning
