@@ -1,4 +1,4 @@
-/* $OpenBSD: channels.c,v 1.444 2025/05/24 11:41:51 djm Exp $ */
+/* $OpenBSD: channels.c,v 1.446 2025/06/02 14:09:34 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -5362,7 +5362,8 @@ x11_channel_used_recently(struct ssh *ssh) {
 		if (c == NULL || c->ctype == NULL || c->lastused == 0 ||
 		    strcmp(c->ctype, "x11-connection") != 0)
 			continue;
-		lastused = c->lastused;
+		if (c->lastused > lastused)
+			lastused = c->lastused;
 	}
-	return lastused != 0 && monotime() > lastused + 1;
+	return lastused != 0 && monotime() <= lastused + 1;
 }
