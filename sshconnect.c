@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect.c,v 1.370 2025/05/06 05:40:56 djm Exp $ */
+/* $OpenBSD: sshconnect.c,v 1.371 2025/05/24 09:46:16 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -1182,7 +1182,7 @@ check_host_key(char *hostname, const struct ssh_conn_info *cinfo,
 			    options.fingerprint_hash, SSH_FP_RANDOMART);
 			if (fp == NULL || ra == NULL)
 				fatal_f("sshkey_fingerprint failed");
-			logit("Host key fingerprint is %s\n%s", fp, ra); // CodeQL [SM02311]: false positive NULL check for ra in earlier line
+			logit("Host key fingerprint is: %s\n%s", fp, ra); // CodeQL [SM02311]: false positive NULL check for ra in earlier line
 			free(ra);
 			free(fp);
 		}
@@ -1233,7 +1233,7 @@ check_host_key(char *hostname, const struct ssh_conn_info *cinfo,
 			    options.fingerprint_hash, SSH_FP_RANDOMART);
 			if (fp == NULL || ra == NULL)
 				fatal_f("sshkey_fingerprint failed");
-			xextendf(&msg1, "\n", "%s key fingerprint is %s.",
+			xextendf(&msg1, "\n", "%s key fingerprint is: %s",
 			    type, fp);
 			if (options.visual_host_key)
 				xextendf(&msg1, "\n", "%s", ra); // CodeQL [SM02311]: false positive NULL check for ra in earlier line
