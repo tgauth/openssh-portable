@@ -5,6 +5,12 @@ target="$2"
 
 PACKAGES=""
 
+echo Running as:
+id
+
+echo Environment:
+set
+
  . .github/configs ${config}
 
 host=`./config.guess`
@@ -18,7 +24,7 @@ case "$host" in
 	set -x
 	setfacl -b . regress
 	icacls regress /c /t /q /Inheritance:d
-	icacls regress /c /t /q /Grant ${LOGNAME}:F
+	icacls regress /c /t /q /Grant ${USERNAME}:F
 	icacls regress /c /t /q /Remove:g "Authenticated Users" \
 	     BUILTIN\\Administrators BUILTIN Everyone System Users
 	takeown /F regress
