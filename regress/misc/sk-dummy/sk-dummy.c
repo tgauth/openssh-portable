@@ -263,7 +263,7 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 		break;
 	default:
 		skdebug(__func__, "unsupported key type %d", alg);
-		return -1;
+		goto out;
 	}
 	/* Have to return something here */
 	if ((response->signature = calloc(1, 1)) == NULL) {
@@ -520,7 +520,7 @@ sk_sign(uint32_t alg, const uint8_t *data, size_t datalen,
 		break;
 	default:
 		skdebug(__func__, "unsupported key type %d", alg);
-		return -1;
+		goto out;
 	}
 	*sign_response = response;
 	response = NULL;
