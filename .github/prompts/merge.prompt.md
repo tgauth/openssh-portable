@@ -5,6 +5,9 @@ Assist with merging the commits from upstream into this branch starting from the
 Provide the following when you invoke this prompt:
 - Start ref (tag or commit) — REQUIRED (e.g., `upstream/V_9_8_P1` or a commit SHA)
 - End ref (commit) — OPTIONAL (default: HEAD - most recent upstream commit)
+- CI grouping mode — REQUIRED (`presence` or `success`): controls how `Get-CommitGroups` determines batch boundaries.
+  - `presence`: Batches end at any commit that has CI runs (passing or failing). Smaller batches, faster iteration, recommended for most merges.
+  - `success`: Batches end only at commits with successful CI. Larger batches, fewer checkpoints, useful when upstream CI is mostly green and you want to minimize batch count.
 - Upstream remote — optional (default: `upstream`)
 - Windows fork remote — optional (default: `upstream-pwsh`)
 - Target branch — optional (default: current branch)
@@ -32,3 +35,4 @@ Quick start examples:
 
 If the Start ref is not provided, ask for it before proceeding.
 If the End ref is not provided, merging will continue to HEAD (most recent upstream commit).
+If the CI grouping mode is not provided, ask the user to choose between `presence` (default recommendation) and `success` before invoking `Get-CommitGroups`.

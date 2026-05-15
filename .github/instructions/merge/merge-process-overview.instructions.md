@@ -91,7 +91,14 @@ The process consists of several interconnected phases:
 
 ### Scratch Branch Phase
 4. **Identify merge range and group commits:**
-    Use the Get-CommitGroups MCP tool with `-FirstChunkOnly -GroupByCIPresence`
+    Use the Get-CommitGroups MCP tool with `-FirstChunkOnly` and a user-selected CI grouping mode.
+
+   **CI grouping mode (user input required):**
+   Before invoking the tool, confirm with the user which mode to use:
+   - `presence` (recommended) → `GroupByCIPresence=true`: batches end at any commit with CI runs (passing or failing). Smaller batches, more frequent build/test checkpoints.
+   - `success` → `GroupByCIPresence=false`: batches end only at commits with successful CI. Larger batches, fewer checkpoints.
+
+   Do not assume a default — ask the user if not provided. Use the same value for every `Get-CommitGroups` call in the merge.
 
    **MCP Tool Name**: `mcp_openssh-server_Get_CommitGroups`
 
@@ -100,13 +107,13 @@ The process consists of several interconnected phases:
    - `StartCommit` (string, optional): Start from specific commit SHA
    - `EndCommit` (string, optional): End at specific commit SHA (default: HEAD - most recent upstream commit)
    - `FirstChunkOnly` (boolean): Set to `true`
-   - `GroupByCIPresence` (boolean): Set to `true`
+   - `GroupByCIPresence` (boolean): Set per the user-selected CI grouping mode above
 
    **Example for first batch**:
    - Find the last upstream tag in the fork
-   - Call tool with `GitHubTag=<last-upstream-tag>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - Call tool with `GitHubTag=<last-upstream-tag>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=<user_choice>`
    - Omit `EndCommit` to merge all commits up to HEAD (most recent upstream commit)
-   - This gets commits ending with any commit that has CI runs (not just successful CI)
+   - With `GroupByCIPresence=true`, this gets commits ending with any commit that has CI runs; with `false`, only commits with successful CI
 
    **Example output:**
    ```json
@@ -125,7 +132,7 @@ The process consists of several interconnected phases:
    Display batch details for verification, then proceed with merging.
 
    **After completing steps below, get next batch**:
-   - Call tool with `StartCommit=<end-commit-sha>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - Call tool with `StartCommit=<end-commit-sha>`, `EndCommit=<target-end-commit>`, `FirstChunkOnly=true`, `GroupByCIPresence=<user_choice>` (use the same mode chosen for the first batch)
    - Continue this process until the target end commit is reached (or HEAD if no end commit specified)
 
 5. **Execute batch merge on scratch branch:**
@@ -165,7 +172,16 @@ The process consists of several interconnected phases:
    # Operation="MergeContinue"
    ```
 
-9. **Build after completing the batch:**
+9. **Build after completing the batch (only if the batch touched compiled sources):**
+     **Gating rule:** Build and validation steps (this step and step 10) are only required for batches whose commit range touches at least one C source or header file (`*.c` or `*.h`). For batches that only modify non-compiled files (e.g., `*.md`, man pages, `regress/*.sh`, `.github/**`, documentation), skip steps 9 and 10 and proceed to step 11; note in the batch summary that build/validation were skipped because no compiled sources changed.
+
+     Detect code impact with:
+     ```pwsh
+     # MCP Tool: mcp_openssh-server_Invoke_Git
+     # Operation="Diff", Range="<previous_batch_end>..<current_batch_end>", NameOnly=true
+     ```
+     If any returned path matches `*.c` or `*.h`, perform the build below. Otherwise, skip to step 11.
+
      Use the Start-OpenSSHBuild MCP tool:
      - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
      - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
@@ -196,8 +212,9 @@ The process consists of several interconnected phases:
      ```
      Commit any build fixes separately with descriptive messages (only actual code changes)
 
-10. **Run full CI validation after every batch (mandatory):**
-    Run the full OpenSSH CI suite regardless of upstream CI status for the batch endpoint.
+10. **Run full CI validation after every batch that was built (mandatory when build ran):**
+    If step 9 was skipped (no `*.c`/`*.h` changes in the batch), skip this step as well.
+    Otherwise, run the full OpenSSH CI suite regardless of upstream CI status for the batch endpoint.
     - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
     - **Parameters**: `Configuration="Release"`, `Architecture="x64"`, `TestSuite="All"`
 

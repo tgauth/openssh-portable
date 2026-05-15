@@ -16,8 +16,8 @@ Instead of cherry-picking commits (which rewrites history), this framework imple
 Benefits:
 - Preserves upstream commit history exactly (original SHAs, authors, timestamps)
 - Uses incremental merge on scratch branch so conflict markers match the final merge (maximising `rerere` replay)
-- Builds after each batch on scratch branch (mandatory) for early error detection
-- Runs the full CI test suite after each batch (mandatory), independent of upstream CI status
+- Builds after each batch on scratch branch (mandatory when the batch touches `*.c` or `*.h` files) for early error detection
+- Runs the full CI test suite after each built batch (mandatory when build ran), independent of upstream CI status
 - Requires user approval before proceeding to next batch
 - Allows for incremental progress and easier rollback
 - Reduces complexity of conflict resolution
@@ -352,7 +352,8 @@ FUNCTION determine_fix_strategy(error):
 - After each batch merge is completed and builds cleanly, run the full CI test suite:
     - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
     - **Parameters**: `Configuration="Release"`, `Architecture="x64"`, `TestSuite="All"`
-- This is mandatory for every batch, regardless of whether the upstream endpoint commit had successful CI.
+- This is mandatory for every batch **that was built** (i.e., the batch touched `*.c` or `*.h` files), regardless of whether the upstream endpoint commit had successful CI.
+- For batches that only modify documentation, regress scripts, or other non-compiled files, skip both build and CI test invocation.
 - If any suite fails, re-run only the failing suite while fixing (`TestSuite="Unit"`, `TestSuite="Bash"`, `TestSuite="E2E"`).
 - For bash triage, run a single failing test with `BashTestFilePath`.
 - Do not proceed to the next batch until the full suite passes (or user explicitly approves an exception).

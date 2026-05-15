@@ -32,7 +32,10 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
      - `EndCommit` (string, optional): Commit SHA to end at (default: HEAD - most recent upstream commit)
      - `FirstChunkOnly` (boolean, optional): Stop after finding first chunk
      - `GroupByCIPresence` (boolean, optional): Group by CI presence instead of CI success
-   - **Recommended Usage**: Always use `-FirstChunkOnly -GroupByCIPresence` for incremental merging
+   - **Required Usage**: Always pass `-FirstChunkOnly`. The value of `-GroupByCIPresence` is determined by the user-supplied **CI grouping mode** (see Phase 0):
+     - `presence` → `GroupByCIPresence=true` (batches end at any commit with CI runs)
+     - `success`  → `GroupByCIPresence=false` (batches end only at commits with successful CI)
+   - **If the user has not specified a mode, ask before invoking the tool.** Do not assume a default.
    - **Usage**: Use the MCP tool function directly - it handles all GitHub API calls
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
@@ -111,7 +114,16 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 **Objective:** Understand the merge scope, requirements, and context
 
 **Steps:**
-1. **Read all merge instructions** from `.github/instructions/merge/` folder:
+1. **Confirm user inputs** required for the workflow:
+   - **Start ref** (tag or commit) — REQUIRED.
+   - **End ref** (commit) — OPTIONAL (defaults to HEAD).
+   - **CI grouping mode** — REQUIRED. Ask the user to choose:
+     - `presence` (recommended): batches end at any commit with CI runs (passing or failing). Smaller batches, more frequent checkpoints.
+     - `success`: batches end only at commits with successful CI. Larger batches, fewer checkpoints.
+   - Record the choice; it will be passed as `GroupByCIPresence` to every `Get-CommitGroups` call in Phases 2 and 5.
+   - If any required input is missing, ask the user before proceeding.
+
+2. **Read all merge instructions** from `.github/instructions/merge/` folder:
    - `merge-process-overview.instructions.md` - Primary merge workflow and process overview
    - `research.instructions.md` - Research methodology and analysis requirements
    - `merge-details.instructions.md` - Detailed conflict resolution strategies and patterns
@@ -198,9 +210,9 @@ The scratch branch uses `git merge` (not cherry-pick) at each batch boundary. Th
 **Steps:**
 1. **Get first commit batch** using Get-CommitGroups MCP tool:
    - **MCP Tool Name**: `mcp_openssh-server_Get_CommitGroups`
-   - **Parameters**:
-     - For first batch: `GitHubTag="V_10_0_P2"`, `EndCommit="<target_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
-     - For subsequent batches: `StartCommit="<previous_end_commit>"`, `EndCommit="<target_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=true`
+   - **Parameters** (set `GroupByCIPresence` from the user's Phase 0 CI grouping mode — `true` for `presence`, `false` for `success`):
+     - For first batch: `GitHubTag="V_10_0_P2"`, `EndCommit="<target_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=<user_choice>`
+     - For subsequent batches: `StartCommit="<previous_end_commit>"`, `EndCommit="<target_end_commit>"`, `FirstChunkOnly=true`, `GroupByCIPresence=<user_choice>`
    - **Note**: If `EndCommit` is not specified, the tool will merge up to the most recent upstream commit (HEAD)
 
    **The tool returns structured data:**
@@ -251,9 +263,16 @@ The scratch branch uses `git merge` (not cherry-pick) at each batch boundary. Th
 - **Removed featureand Validation
 **Objective:** Build successfully and validate if CI was successful
 
-**MANDATORY:** Build after each commit batch before proceeding to next batch.
+**Build/validation gating rule:** Build and validation are only required for batches whose merged commit range touches at least one C source or header file (`*.c` or `*.h`, including under `contrib/win32/**`). For batches that only modify non-compiled files (e.g., `*.md`, `*.0`/`*.5` man pages, `regress/*.sh`, `.github/**`, `Makefile.in` text-only changes that do not affect VS projects), skip the build and validation steps and proceed directly to Phase 4 (Summary and Approval), noting in the summary that build was skipped because no compiled sources changed.
 
-**Steps:**
+**Detecting code impact:** Before Step 1, list the files changed by the batch:
+```pwsh
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Diff", Range="<previous_batch_end>..<current_batch_end>", NameOnly=true
+```
+If any returned path matches `*.c` or `*.h`, perform the build/validation steps below. Otherwise, record "no compiled sources changed" and skip to Phase 4.
+
+**Steps (when code impact detected):**
 1. **Build the merged code:**
    - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
@@ -347,8 +366,8 @@ The scratch branch uses `git merge` (not cherry-pick) at each batch boundary. Th
    - Get next batch with Get-CommitGroups (passing both StartCommit and EndCommit)
    - Merge batch endpoint (`Invoke-Git Merge`)
    - Resolve conflicts and record with Save-MergeResolution
-   - Build (mandatory)
-   - Validate (if batch ends with successful CI)
+   - Build (only if the batch touches `*.c` or `*.h` — see Phase 3 gating rule)
+   - Validate (only if build was performed and the batch ends with successful CI)
    - Summarize and get approval
 3. **Continue** until the target end commit is reached (or HEAD if no end commit was specified)
 4. **Final scratch-branch validation:**
@@ -554,7 +573,7 @@ git log --oneline -5  # Verify last successful state
 - Reference upstream commit SHAs when applicable
 
 ### Testing Between Batches
-- Build after each batch
+- Build after each batch that touches `*.c` or `*.h` files (skip for documentation-only / regress-script-only batches)
 - Quick smoke test (service start, simple connection)
 - Full test only after all batches complete
 
