@@ -18,15 +18,17 @@ Ensure the following tools are installed and configured before proceeding:
 ## Process Overview
 The merge process uses a **two-phase approach** to preserve upstream commit history while keeping conflict resolution manageable:
 
-1. **Scratch branch** — Incremental `git merge` at batch boundaries. Build and run the full CI test suite after each batch. Every conflict resolution is recorded via `git rerere` and a resolution log.
-2. **Real branch** — A single `git merge` of the final upstream target. Recorded resolutions are replayed automatically. This produces one merge commit with all upstream SHAs intact.
+1. **Scratch branch** — All work happens here: incremental `git merge` at batch boundaries, conflict resolution, build fixes, and full CI test suite runs after each batch.
+2. **Real merge branch** — Created from the same starting commit as the scratch branch, after all scratch-branch work is complete. A single `git merge` of the final upstream target is performed; any conflicts are resolved by copying the already-resolved files from the scratch branch (`git checkout scratch-branch -- <file>`). This produces one merge commit with all upstream SHAs intact and a tree that matches the validated scratch-branch state.
+
+No `git rerere` recording, no resolution log, and no Save/Replay tooling is required.
 
 The process consists of several interconnected phases:
 
 1. **[Setup Phase](#setup-phase)** - Repository configuration and preparation
 2. **[Research Phase](#research-phase)** - Understanding changes and conflicts
-3. **[Scratch Branch Phase](#scratch-branch-phase)** - Incremental merging with resolution recording
-4. **[Real Branch Phase](#real-branch-phase)** - Single merge with resolution replay
+3. **[Scratch Branch Phase](#scratch-branch-phase)** - Incremental merging, conflict resolution, build fixes, validation
+4. **[Real Branch Phase](#real-branch-phase)** - Single merge with conflict resolution by copy from scratch branch
 5. **[Build Phase](#build-phase)** - Resolving compilation issues
 6. **[Testing Phase](#testing-phase)** - Validating functionality
 7. **[Submission Phase](#submission-phase)** - Creating the Pull Request
@@ -72,19 +74,16 @@ The process consists of several interconnected phases:
     ```pwsh
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Config", Key="core.editor", Value="true"
-
-    # Enable rerere for automatic resolution recording
-    # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Config", Key="rerere.enabled", Value="true"
     ```
 
-3. **Create branches:**
+3. **Create the scratch branch only (record the starting commit):**
     ```pwsh
-    # Create the real merge branch (receives the final single merge)
+    # Note the current HEAD — this is the starting commit. The real merge
+    # branch will be created from this same commit in the Real Branch Phase.
     # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="CreateBranch", Branch="merge-v<VERSION>-<YYYYMMDD>"
+    # Operation="Log", Range="-1"
 
-    # Create the scratch branch from the same point (for incremental merges)
+    # Create the scratch branch (all work happens here)
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="CreateBranch", Branch="scratch-merge-v<VERSION>-<YYYYMMDD>"
     ```
@@ -147,19 +146,13 @@ The process consists of several interconnected phases:
 
    This uses `--no-ff` to always create a merge commit checkpoint.
 
-7. **Resolve merge conflicts and record resolutions:**
+7. **Resolve merge conflicts directly:**
     **📖 Detailed Instructions** ([Merge Details](./merge-details.instructions.md)):
 
-   - Resolve conflicts for all conflicted files
-   - **Record each resolution** using the Save-MergeResolution MCP tool:
-     ```pwsh
-     # MCP Tool: mcp_openssh-server_Save_MergeResolution
-     # FilePath="<file>", Strategy="<strategy>", Rationale="<why>",
-     # BatchNumber=<N>, UpstreamCommits="<sha1,sha2>"
-     ```
-   - `git rerere` also automatically records resolutions
+   - Resolve conflicts in place for all conflicted files
    - Follow established Windows compatibility patterns
    - Reference previous merge PRs for similar conflicts
+   - The resolved files on the scratch branch are the source of truth that will be copied to the real merge branch in the Real Branch Phase. No resolution log or rerere recording is needed.
 
 8. **Complete the merge after resolution:**
    ```pwsh
@@ -231,10 +224,15 @@ The process consists of several interconnected phases:
     - After all batches complete on the scratch branch, proceed to the Real Branch Phase
 
 ### Real Branch Phase
-12. **Switch to the real merge branch:**
+12. **Create the real merge branch from the original starting commit** (recorded in step 3 of Initial Preparation):
     ```pwsh
+    # Check out the original starting commit
     # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Checkout", Target="merge-v<VERSION>-<YYYYMMDD>"
+    # Operation="Checkout", Target="<starting_commit>"
+
+    # Create the real merge branch from there
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="CreateBranch", Branch="merge-v<VERSION>-<YYYYMMDD>"
     ```
 
 13. **Perform a single merge** of the final upstream target:
@@ -242,21 +240,31 @@ The process consists of several interconnected phases:
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Merge", CommitHash="<final-upstream-commit-or-tag>"
     ```
-    `git rerere` will automatically apply resolutions recorded during the scratch phase.
+    This creates one merge commit covering all upstream commits in the range.
 
-14. **Replay remaining resolutions** from the log:
+14. **Resolve conflicts by copying the resolved files from the scratch branch:**
+    For each conflicted file, replace it with the already-resolved version from the scratch branch and stage it:
     ```pwsh
-    # MCP Tool: mcp_openssh-server_Replay_MergeResolutions
-    # (reads from .git/merge-resolution-log.json)
+    # In a terminal (no dedicated MCP wrapper needed):
+    git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- <conflicted_file>
+
+    # Then stage:
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Add", Path="<conflicted_file>"
     ```
-    Resolve any unmatched files manually using the log's strategy and rationale as guidance.
+    **Simplest variant:** copy every file the merge touched (resolved + non-resolved) from the scratch branch in one command, guaranteeing the merge commit's tree exactly matches the scratch branch's tip:
+    ```pwsh
+    # After the merge reports conflicts (do NOT abort):
+    git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- .
+    git add -A
+    ```
 
 15. **Complete the merge and apply build fixes:**
     ```pwsh
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="MergeContinue"
     ```
-    Apply build fixes (config.h.vs, .vcxproj changes, etc.) as separate commits after the merge commit.
+    If you used the per-file copy in step 14, replay the build-fix commits made on the scratch branch (cherry-pick or re-apply) as separate commits after the merge commit. If you used the whole-tree copy, the build fixes are already included in the merge commit's tree.
 
 16. **Final build and validation** on the real branch.
 

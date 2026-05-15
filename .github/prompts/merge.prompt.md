@@ -15,7 +15,7 @@ Provide the following when you invoke this prompt:
 Operating guidance:
 - Use and follow merge-upstream.agent.md. Treat it as the primary operating guide.
 - Rely on the provided <attachments> for repository overview, setup, build, merge strategy, and testing. Do not re-fetch or re-search them; assume they are already attached in context.
-- Use the two-phase merge workflow: (1) incremental `git merge` on a scratch branch with resolution recording via `git rerere` and Save-MergeResolution, then (2) a single `git merge` on the real branch with resolution replay via `git rerere` and Replay-MergeResolutions. This preserves upstream commit history.
+- Use the two-phase merge workflow: (1) do ALL work on a scratch branch — incremental `git merge` at batch boundaries, conflict resolution, build fixes, and validation; (2) create the real merge branch from the same starting commit as the scratch branch, perform a single `git merge` of the final upstream target, and resolve any conflicts by copying the already-resolved files from the scratch branch (`git checkout scratch-branch -- <file>`). No `git rerere`, no Save/Replay merge resolution tooling is needed.
 - Build using the MCP tools: `mcp_openssh-server_Start_OpenSSHBuild` (Release/x64 by default). If the build fails, analyze with `mcp_openssh-server_Test_OpenSSHBuild`.
 - For validation, use `mcp_openssh-server_Test_OpenSSHFunctionality`.
 - Apply Windows compatibility strategies as documented (prefer win32compat layer; guard with `#ifdef WINDOWS` when necessary; update VS projects for build system changes).

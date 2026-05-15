@@ -122,8 +122,6 @@ quick map:
 | `mcp_openssh-server_Get_CommitGroups` | [Get-CommitGroups.ps1](./tools/Get-CommitGroups.ps1) | Group upstream commits into mergeable batches by CI presence/success. |
 | `mcp_openssh-server_Invoke_Git` | [Invoke-Git.ps1](./tools/Invoke-Git.ps1) | Structured wrapper around git operations (Status, Merge, Diff, Checkout, …). |
 | `mcp_openssh-server_Get_ConflictContext` | [Get-ConflictContext.ps1](./tools/Get-ConflictContext.ps1) | Three-way diff context for high-complexity merge conflicts. |
-| `mcp_openssh-server_Save_MergeResolution` | [Save-MergeResolution.ps1](./tools/Save-MergeResolution.ps1) | Record a conflict-resolution decision (strategy + rationale). |
-| `mcp_openssh-server_Replay_MergeResolutions` | [Replay-MergeResolutions.ps1](./tools/Replay-MergeResolutions.ps1) | Replay recorded resolutions onto the real merge branch. |
 | `mcp_openssh-server_Start_OpenSSHBuild` | [Start-OpenSSHBuild.ps1](./tools/Start-OpenSSHBuild.ps1) | Build the Win32-OpenSSH solution. |
 | `mcp_openssh-server_Test_OpenSSHBuild` | [Test-OpenSSHBuild.ps1](./tools/Test-OpenSSHBuild.ps1) | Parse the most recent build log for errors and warnings. |
 | `mcp_openssh-server_Test_OpenSSHFunctionality` | [Test-OpenSSHFunctionality.ps1](./tools/Test-OpenSSHFunctionality.ps1) | End-to-end smoke test (install service, connect, cleanup). |
@@ -188,11 +186,13 @@ Self-contained workflow skills the agent reads on demand.
 ## Merging from upstream
 
 Merging from `openssh/openssh-portable` is the headline workflow this
-folder is built around. It uses a **two-phase approach** (incremental
-merges on a scratch branch with conflict resolutions recorded via `git
-rerere` + `Save-MergeResolution`, then a single replayed merge on the
-real branch) so upstream commit history is preserved exactly. The full
-workflow lives in
+folder is built around. It uses a **two-phase approach** (all incremental
+merges, conflict resolution, build fixes, and validation happen on a
+scratch branch; then a real merge branch is created from the same
+starting commit, a single `git merge` of the upstream target is
+performed, and any conflicts are resolved by copying the resolved files
+from the scratch branch). This preserves upstream commit history
+exactly. The full workflow lives in
 [instructions/merge/merge-process-overview.instructions.md](./instructions/merge/merge-process-overview.instructions.md);
 conflict-resolution patterns are in
 [merge-details.instructions.md](./instructions/merge/merge-details.instructions.md);

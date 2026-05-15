@@ -10,12 +10,14 @@ This AI-specific documentation provides comprehensive instructions and algorithm
 **Key Approach: Two-Phase Merge with Scratch Branch**
 Instead of cherry-picking commits (which rewrites history), this framework implements a two-phase approach:
 
-1. **Scratch branch** — Incremental `git merge` at batch boundaries (grouped by CI presence). Build and run the full CI test suite after each batch. Every conflict resolution is recorded via `git rerere` and the Save-MergeResolution MCP tool.
-2. **Real branch** — A single `git merge` of the final upstream target. Recorded resolutions replay automatically via `git rerere` and Replay-MergeResolutions. This produces one merge commit with all upstream SHAs intact.
+1. **Scratch branch** — All work happens here: incremental `git merge` at batch boundaries (grouped by CI presence or success), conflict resolution, build fixes, and full CI test suite runs after each batch.
+2. **Real merge branch** — Created from the same starting commit as the scratch branch, after all scratch-branch work is complete. A single `git merge` of the final upstream target is performed; any conflicts are resolved by copying the already-resolved files from the scratch branch (`git checkout scratch-branch -- <file>`). This produces one merge commit with all upstream SHAs intact and a tree matching the validated scratch-branch state.
+
+No `git rerere`, no resolution log, and no Save/Replay tooling is needed.
 
 Benefits:
 - Preserves upstream commit history exactly (original SHAs, authors, timestamps)
-- Uses incremental merge on scratch branch so conflict markers match the final merge (maximising `rerere` replay)
+- Conflicts on the real branch are resolved in seconds via file copy from the validated scratch branch
 - Builds after each batch on scratch branch (mandatory when the batch touches `*.c` or `*.h` files) for early error detection
 - Runs the full CI test suite after each built batch (mandatory when build ran), independent of upstream CI status
 - Requires user approval before proceeding to next batch
@@ -485,11 +487,9 @@ FUNCTION resolve_conflict(file_path, conflict_content, merge_batch_commit):
 
     resolved = apply_resolution_strategy(file_path, conflict_content)
 
-    // Record the resolution for replay on the real branch
-    // MCP Tool: mcp_openssh-server_Save_MergeResolution
-    // FilePath=file_path, Strategy=<chosen_strategy>, Rationale=<why>,
-    // BatchNumber=<N>, UpstreamCommits=<commits_touching_file>
-    save_merge_resolution(file_path, strategy, rationale, batch_number)
+    // The resolved file on the scratch branch is the source of truth.
+    // It will be copied directly to the real merge branch in the Real Branch Phase
+    // via `git checkout scratch-branch -- <file_path>`. No resolution log is recorded.
 
     RETURN resolved
 ```
