@@ -1055,43 +1055,88 @@ int fork()
 }
 char * build_commandline_string(const char* cmd, char *const argv[], BOOLEAN prepend_module_path);
 
-wchar_t*
-get_username_from_token(HANDLE as_user)
+static BOOL
+is_sshd_service_token(HANDLE token)
 {
-	wchar_t* user_name = NULL;
-	SID_NAME_USE usage;
+	BOOL is_sshd = FALSE;
 	DWORD count = 0;
-	GetTokenInformation(as_user, TokenUser, NULL, 0, &count);
-	if (count) {
-		void* buffer = malloc(count);
-		if (buffer) {
-			if (GetTokenInformation(as_user, TokenUser, buffer, count, &count)) {
-				TOKEN_USER* owner = (TOKEN_USER*)buffer;
-				DWORD name_length = 0;
-				DWORD domain_length = 0;
-				LookupAccountSidW(NULL, owner->User.Sid, NULL, &name_length, NULL, &domain_length, &usage); /* Figure out the length of the name. */
-				if (name_length) {
-					wchar_t* domain_name = malloc(domain_length * sizeof(wchar_t));
-					if (domain_name) {
-						user_name = malloc(name_length * sizeof(wchar_t));
-						if (user_name) {
-							memset(user_name, 0, name_length * sizeof(wchar_t));
-							memset(domain_name, 0, domain_length * sizeof(wchar_t));
-							BOOL success = LookupAccountSidW(NULL, owner->User.Sid, user_name, &name_length, domain_name, &domain_length, &usage);
-							if (!success) /* Silently return an empty string if unsuccessful. */
-							{
-								free(user_name);
-								user_name = NULL;
-							}
-						}
-						free(domain_name);
-					}
-				}
+	GetTokenInformation(token, TokenUser, NULL, 0, &count);
+	if (!count)
+		return FALSE;
+	void* buffer = malloc(count);
+	if (!buffer)
+		return FALSE;
+	if (GetTokenInformation(token, TokenUser, buffer, count, &count)) {
+		TOKEN_USER* user = (TOKEN_USER*)buffer;
+		SID_NAME_USE usage;
+		DWORD name_len = 0, domain_len = 0;
+		LookupAccountSidW(NULL, user->User.Sid, NULL, &name_len, NULL, &domain_len, &usage);
+		if (name_len && domain_len) {
+			wchar_t* name = malloc(name_len * sizeof(wchar_t));
+			wchar_t* domain = malloc(domain_len * sizeof(wchar_t));
+			if (name && domain &&
+			    LookupAccountSidW(NULL, user->User.Sid, name, &name_len, domain, &domain_len, &usage)) {
+				is_sshd = (_wcsicmp(name, L"sshd") == 0 && _wcsicmp(domain, L"NT SERVICE") == 0);
 			}
-			free(buffer);
+			if (name)
+				free(name);
+			if (domain)
+				free(domain);
 		}
 	}
-	return user_name;
+	free(buffer);
+	return is_sshd;
+}
+
+static wchar_t*
+override_path_in_env_block(const wchar_t* src, const wchar_t* merged_path)
+{
+	if (!src || !merged_path)
+		return NULL;
+
+	const size_t prefix_len = 5; /* L"PATH=" */
+	size_t merged_path_len = wcslen(merged_path);
+	size_t path_entry_chars = prefix_len + merged_path_len + 1; /* include trailing NUL */
+
+	/* Measure source block length (in wchars) including the final empty string. */
+	const wchar_t* p = src;
+	while (*p)
+		p += wcslen(p) + 1;
+	size_t src_chars = (size_t)(p - src) + 1; /* +1 for the terminating empty string */
+
+	/* Worst case: original block plus one extra PATH entry. */
+	size_t out_capacity = src_chars + path_entry_chars;
+	wchar_t* out = (wchar_t*)malloc(out_capacity * sizeof(wchar_t));
+	if (!out)
+		return NULL;
+
+	wchar_t* w = out;
+	BOOL replaced = FALSE;
+	const wchar_t* cur = src;
+	while (*cur) {
+		size_t entry_chars = wcslen(cur); /* excludes NUL */
+		if (!replaced && entry_chars >= prefix_len && _wcsnicmp(cur, L"PATH=", prefix_len) == 0) {
+			memcpy(w, L"PATH=", prefix_len * sizeof(wchar_t));
+			w += prefix_len;
+			memcpy(w, merged_path, merged_path_len * sizeof(wchar_t));
+			w += merged_path_len;
+			*w++ = L'\0';
+			replaced = TRUE;
+		} else {
+			memcpy(w, cur, (entry_chars + 1) * sizeof(wchar_t));
+			w += entry_chars + 1;
+		}
+		cur += entry_chars + 1;
+	}
+	if (!replaced) {
+		memcpy(w, L"PATH=", prefix_len * sizeof(wchar_t));
+		w += prefix_len;
+		memcpy(w, merged_path, merged_path_len * sizeof(wchar_t));
+		w += merged_path_len;
+		*w++ = L'\0';
+	}
+	*w = L'\0'; /* final double-NUL terminator */
+	return out;
 }
 
 /*
@@ -1106,10 +1151,11 @@ spawn_child_internal(const char* cmd, char *const argv[], HANDLE in, HANDLE out,
 {
 	PROCESS_INFORMATION pi;
 	STARTUPINFOW si;
-	BOOL b;
+	BOOL b = FALSE;
 	char *cmdline;
 	wchar_t * cmdline_utf16 = NULL;
 	int ret = -1;
+
 	if ((cmdline = build_commandline_string(cmd, argv, prepend_module_path)) == NULL) {
 		errno = ENOMEM;
 		goto cleanup;
@@ -1125,7 +1171,7 @@ spawn_child_internal(const char* cmd, char *const argv[], HANDLE in, HANDLE out,
 	si.hStdOutput = out;
 	si.hStdError = err;
 	si.dwFlags = STARTF_USESTDHANDLES;
-	
+
 	if (strstr(cmd, "sshd-session.exe") || strstr(cmd, "sshd-auth.exe")) {
 		flags |= DETACHED_PROCESS;
 	}
@@ -1146,20 +1192,48 @@ spawn_child_internal(const char* cmd, char *const argv[], HANDLE in, HANDLE out,
 		if (as_user) {
 			debug3("spawning %ls as user", t);
 			LPVOID lpEnvironment = NULL;
-			wchar_t* as_user_name = get_username_from_token(as_user);
-			if (as_user_name) {
-				if (wcsncmp(L"sshd", as_user_name, wcslen(L"sshd")) != 0) { /* Ignore any names that begin with the service name `sshd`. */
-					b = CreateEnvironmentBlock(&lpEnvironment, as_user, TRUE); /* Load a user environment block inheriting the current context, thereby passing session state. */
+			wchar_t* merged_env = NULL;
+			if (!is_sshd_service_token(as_user)) {
+				/* Load the user's environment block (HKCU vars, USERPROFILE, etc.),
+				 * inheriting the current context so session state set in
+				 * sshd-session is preserved. Skipped for the NT SERVICE\sshd
+				 * virtual account (sshd worker chain re-spawning itself). */
+				CreateEnvironmentBlock(&lpEnvironment, as_user, TRUE);
+			}
+
+			if (lpEnvironment) {
+				/* Restore the merged System+User PATH that setup_session_user_vars
+				 * computed into this process's PATH; CreateEnvironmentBlock
+				 * overlays HKCU PATH on top of it, so we must override the block. */
+				DWORD merged_path_chars = GetEnvironmentVariableW(L"PATH", NULL, 0);
+				if (merged_path_chars > 0) {
+					wchar_t* merged_path = (wchar_t*)malloc(merged_path_chars * sizeof(wchar_t));
+					if (merged_path) {
+						if (GetEnvironmentVariableW(L"PATH", merged_path, merged_path_chars) > 0)
+							merged_env = override_path_in_env_block((const wchar_t*)lpEnvironment, merged_path);
+						free(merged_path);
+					}
 				}
-				free(as_user_name);
 			}
-			if (lpEnvironment) { /* Pass the user environment block to the new process. */
-				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE, flags | CREATE_UNICODE_ENVIRONMENT, lpEnvironment, NULL, &si, &pi);
+
+			if (merged_env) {
+				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE,
+				                         flags | CREATE_UNICODE_ENVIRONMENT,
+				                         merged_env, NULL, &si, &pi);
+				free(merged_env);
+			}
+			else if (lpEnvironment) {
+				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE,
+				                         flags | CREATE_UNICODE_ENVIRONMENT,
+				                         lpEnvironment, NULL, &si, &pi);
+			}
+			else {
+				/* Fallback: pass the current context's environment block. */
+				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE,
+				                         flags, NULL, NULL, &si, &pi);
+			}
+			if (lpEnvironment)
 				DestroyEnvironmentBlock(lpEnvironment);
-			}
-			else { /* Pass the current context's environment block to the new process. */
-				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);
-			}
 		}
 		else {
 			debug3("spawning %ls as subprocess", t);
