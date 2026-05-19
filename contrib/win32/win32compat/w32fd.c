@@ -1220,7 +1220,7 @@ cleanup:
 	if (cmdline)
 		free(cmdline);
 	if (cmdline_utf16)
-		free(cmdline_utf16);	
+		free(cmdline_utf16);
 	return ret;
 }
 
