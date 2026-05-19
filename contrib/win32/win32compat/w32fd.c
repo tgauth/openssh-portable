@@ -1088,57 +1088,6 @@ is_sshd_service_token(HANDLE token)
 	return is_sshd;
 }
 
-static wchar_t*
-override_path_in_env_block(const wchar_t* src, const wchar_t* merged_path)
-{
-	if (!src || !merged_path)
-		return NULL;
-
-	const size_t prefix_len = 5; /* L"PATH=" */
-	size_t merged_path_len = wcslen(merged_path);
-	size_t path_entry_chars = prefix_len + merged_path_len + 1; /* include trailing NUL */
-
-	/* Measure source block length (in wchars) including the final empty string. */
-	const wchar_t* p = src;
-	while (*p)
-		p += wcslen(p) + 1;
-	size_t src_chars = (size_t)(p - src) + 1; /* +1 for the terminating empty string */
-
-	/* Worst case: original block plus one extra PATH entry. */
-	size_t out_capacity = src_chars + path_entry_chars;
-	wchar_t* out = (wchar_t*)malloc(out_capacity * sizeof(wchar_t));
-	if (!out)
-		return NULL;
-
-	wchar_t* w = out;
-	BOOL replaced = FALSE;
-	const wchar_t* cur = src;
-	while (*cur) {
-		size_t entry_chars = wcslen(cur); /* excludes NUL */
-		if (!replaced && entry_chars >= prefix_len && _wcsnicmp(cur, L"PATH=", prefix_len) == 0) {
-			memcpy(w, L"PATH=", prefix_len * sizeof(wchar_t));
-			w += prefix_len;
-			memcpy(w, merged_path, merged_path_len * sizeof(wchar_t));
-			w += merged_path_len;
-			*w++ = L'\0';
-			replaced = TRUE;
-		} else {
-			memcpy(w, cur, (entry_chars + 1) * sizeof(wchar_t));
-			w += entry_chars + 1;
-		}
-		cur += entry_chars + 1;
-	}
-	if (!replaced) {
-		memcpy(w, L"PATH=", prefix_len * sizeof(wchar_t));
-		w += prefix_len;
-		memcpy(w, merged_path, merged_path_len * sizeof(wchar_t));
-		w += merged_path_len;
-		*w++ = L'\0';
-	}
-	*w = L'\0'; /* final double-NUL terminator */
-	return out;
-}
-
 /*
 * spawn a child process
 * - specified by cmd with agruments argv
@@ -1192,7 +1141,6 @@ spawn_child_internal(const char* cmd, char *const argv[], HANDLE in, HANDLE out,
 		if (as_user) {
 			debug3("spawning %ls as user", t);
 			LPVOID lpEnvironment = NULL;
-			wchar_t* merged_env = NULL;
 			if (!is_sshd_service_token(as_user)) {
 				/* Load the user's environment block (HKCU vars, USERPROFILE, etc.),
 				 * inheriting the current context so session state set in
@@ -1200,40 +1148,13 @@ spawn_child_internal(const char* cmd, char *const argv[], HANDLE in, HANDLE out,
 				 * virtual account (sshd worker chain re-spawning itself). */
 				CreateEnvironmentBlock(&lpEnvironment, as_user, TRUE);
 			}
-
-			if (lpEnvironment) {
-				/* Restore the merged System+User PATH that setup_session_user_vars
-				 * computed into this process's PATH; CreateEnvironmentBlock
-				 * overlays HKCU PATH on top of it, so we must override the block. */
-				DWORD merged_path_chars = GetEnvironmentVariableW(L"PATH", NULL, 0);
-				if (merged_path_chars > 0) {
-					wchar_t* merged_path = (wchar_t*)malloc(merged_path_chars * sizeof(wchar_t));
-					if (merged_path) {
-						if (GetEnvironmentVariableW(L"PATH", merged_path, merged_path_chars) > 0)
-							merged_env = override_path_in_env_block((const wchar_t*)lpEnvironment, merged_path);
-						free(merged_path);
-					}
-				}
-			}
-
-			if (merged_env) {
-				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE,
-				                         flags | CREATE_UNICODE_ENVIRONMENT,
-				                         merged_env, NULL, &si, &pi);
-				free(merged_env);
-			}
-			else if (lpEnvironment) {
-				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE,
-				                         flags | CREATE_UNICODE_ENVIRONMENT,
-				                         lpEnvironment, NULL, &si, &pi);
-			}
-			else {
-				/* Fallback: pass the current context's environment block. */
-				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE,
-				                         flags, NULL, NULL, &si, &pi);
-			}
-			if (lpEnvironment)
+			if (lpEnvironment) { /* Pass the user environment block to the new process. */
+				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE, flags | CREATE_UNICODE_ENVIRONMENT, lpEnvironment, NULL, &si, &pi);
 				DestroyEnvironmentBlock(lpEnvironment);
+			}
+			else { /* Pass the current context's environment block to the new process. */
+				b = CreateProcessAsUserW(as_user, NULL, t, NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);
+			}
 		}
 		else {
 			debug3("spawning %ls as subprocess", t);
