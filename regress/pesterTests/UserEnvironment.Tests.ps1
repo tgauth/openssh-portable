@@ -26,7 +26,7 @@ Describe "E2E scenarios for user environment block" -Tags "CI" {
         $keypassphrase = "testpassword"
         $script:envTestKey = Join-Path $testDir "sshd_user_envtest_ed25519"
         Remove-Item -Path "$($script:envTestKey)*" -Force -ErrorAction SilentlyContinue
-        ssh-keygen.exe -t ed25519 -f $script:envTestKey -P $keypassphrase
+        ssh-keygen.exe -q -t ed25519 -f $script:envTestKey -N $keypassphrase
         $envTestSshDir = Join-Path $script:envTestProfile .ssh
         if (-not (Test-Path $envTestSshDir -PathType Container)) {
             New-Item $envTestSshDir -ItemType Directory -Force -ErrorAction Stop | Out-Null

@@ -1060,8 +1060,8 @@ is_sshd_service_token(HANDLE token)
 {
 	BOOL is_sshd = FALSE;
 	DWORD count = 0;
-	GetTokenInformation(token, TokenUser, NULL, 0, &count);
-	if (!count)
+	if (GetTokenInformation(token, TokenUser, NULL, 0, &count) ||
+	    GetLastError() != ERROR_INSUFFICIENT_BUFFER || !count)
 		return FALSE;
 	void* buffer = malloc(count);
 	if (!buffer)
