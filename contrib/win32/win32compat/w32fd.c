@@ -1109,11 +1109,20 @@ static LPPROC_THREAD_ATTRIBUTE_LIST build_inherit_handle_attr_list(HANDLE *handl
 {
 	LPPROC_THREAD_ATTRIBUTE_LIST attr_list = NULL;
 	SIZE_T attr_list_size = 0;
+	BOOL success;
+	DWORD error;
 
 	if (count == 0)
 		return NULL;
 
-	InitializeProcThreadAttributeList(NULL, 1, 0, &attr_list_size);
+	success = InitializeProcThreadAttributeList(NULL, 1, 0, &attr_list_size);
+	error = GetLastError();
+	if (success || error != ERROR_INSUFFICIENT_BUFFER || attr_list_size == 0) {
+		debug3("InitializeProcThreadAttributeList size query failed, success:%d error:%lu size:%zu",
+			success, error, attr_list_size);
+		return NULL;
+	}
+
 	attr_list = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(attr_list_size);
 	if (!attr_list)
 		return NULL;
