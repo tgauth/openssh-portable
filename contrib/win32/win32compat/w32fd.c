@@ -1118,12 +1118,12 @@ static LPPROC_THREAD_ATTRIBUTE_LIST build_inherit_handle_attr_list(HANDLE *handl
 	if (!attr_list)
 		return NULL;
 	if (!InitializeProcThreadAttributeList(attr_list, 1, 0, &attr_list_size)) {
-		debug3("InitializeProcThreadAttributeList failed, error:%d", GetLastError());
+		debug3("InitializeProcThreadAttributeList failed, error:%lu", GetLastError());
 		free(attr_list);
 		return NULL;
 	}
 	if (!UpdateProcThreadAttribute(attr_list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles, count * sizeof(HANDLE), NULL, NULL)) {
-		debug3("UpdateProcThreadAttribute failed, error:%d", GetLastError());
+		debug3("UpdateProcThreadAttribute failed, error:%lu", GetLastError());
 		DeleteProcThreadAttributeList(attr_list);
 		free(attr_list);
 		return NULL;
