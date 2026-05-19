@@ -1,5 +1,6 @@
 If ($PSVersiontable.PSVersion.Major -le 2) {$PSScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path}
 Import-Module $PSScriptRoot\CommonUtils.psm1 -Force
+Import-Module OpenSSHUtils -Force
 
 $tC = 1
 $tI = 0
@@ -8,26 +9,41 @@ $suite = "userenvironment"
 Describe "E2E scenarios for user environment block" -Tags "CI" {
     BeforeAll {
         if ($OpenSSHTestInfo -eq $null) {
-            Throw "`$OpenSSHTestInfo is null. Please run Set-OpenSSHTestEnvironment to set test environments."
+            throw "`$OpenSSHTestInfo is null. Please run Set-OpenSSHTestEnvironment to set test environments."
         }
 
         $server  = $OpenSSHTestInfo["Target"]
         $port    = $OpenSSHTestInfo["Port"]
-        $ssouser = $OpenSSHTestInfo["SSOUser"]
 
         $testDir = Join-Path $OpenSSHTestInfo["TestDataPath"] $suite
         if (-not (Test-Path $testDir)) {
             $null = New-Item $testDir -ItemType directory -Force -ErrorAction SilentlyContinue
         }
 
-        # Helper: run a one-liner inside an SSH session as the SSO user using PowerShell.
-        function Invoke-RemotePS {
-            param([Parameter(Mandatory=$true)][string] $Script)
-            $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Script))
-            $out = ssh -p $port -o "StrictHostKeyChecking=no" -o "UserKnownHostsFile=$testDir\known_hosts" `
-                       "$ssouser@$server" powershell -NoProfile -NonInteractive -EncodedCommand $encoded 2>$null
-            if ($out -is [array]) { return ($out -join "`n").Trim() }
-            return ($out | Out-String).Trim()
+        $script:envTestUser    = $OpenSSHTestInfo["SshdUser"]
+        $script:envTestProfile = $OpenSSHTestInfo["SshdUserProfile"]
+
+        $keypassphrase = "testpassword"
+        $script:envTestKey = Join-Path $testDir "sshd_user_envtest_ed25519"
+        Remove-Item -Path "$($script:envTestKey)*" -Force -ErrorAction SilentlyContinue
+        ssh-keygen.exe -t ed25519 -f $script:envTestKey -P $keypassphrase
+        $envTestSshDir = Join-Path $script:envTestProfile .ssh
+        if (-not (Test-Path $envTestSshDir -PathType Container)) {
+            New-Item $envTestSshDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        $script:envTestAuthKeys = Join-Path $envTestSshDir authorized_keys
+        Copy-Item "$($script:envTestKey).pub" $script:envTestAuthKeys -Force
+        Repair-AuthorizedKeyPermission -FilePath $script:envTestAuthKeys -confirm:$false
+        Add-PasswordSetting -Pass $keypassphrase
+    }
+
+    AfterAll {
+        Remove-PasswordSetting
+        if ($script:envTestKey) { 
+            Remove-Item -Path "$($script:envTestKey)*" -Force -ErrorAction SilentlyContinue 
+        }
+        if ($script:envTestAuthKeys -and (Test-Path $script:envTestAuthKeys)) {
+            Remove-Item $script:envTestAuthKeys -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -38,80 +54,77 @@ Describe "E2E scenarios for user environment block" -Tags "CI" {
         AfterAll  { $tC++ }
 
         It "$tC.$tI - USERNAME matches the connecting user" {
-            $shortName = ($ssouser -split '\\')[-1]
-            $remote = Invoke-RemotePS '$env:USERNAME'
-            $remote | Should Be $shortName
+            $o = ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %USERNAME%
+            "$o".Trim() | Should Be $script:envTestUser
         }
 
         It "$tC.$tI - USERPROFILE points to the connecting user's profile" {
-            $remote = Invoke-RemotePS '$env:USERPROFILE'
+            $o = ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %USERPROFILE%
+            $remote = "$o".Trim()
             $remote | Should Not BeNullOrEmpty
-            # Reject the LocalSystem / sshd-session fallback profile.
             $remote | Should Not Match 'system32\\config\\systemprofile'
-            ($remote -split '\\')[-1] | Should Be (($ssouser -split '\\')[-1])
+            # Profile leaf is normally the user name, but Windows can suffix
+            # it (e.g. sshd_user.DESKTOP-XYZ.001) when the profile dir was
+            # recreated, so just check it starts with the user name.
+            ($remote -split '\\')[-1] | Should Match ("^" + [regex]::Escape($script:envTestUser))
         }
 
-        It "$tC.$tI - HOMEDRIVE and HOMEPATH are populated" {
-            $remote = Invoke-RemotePS '"{0}|{1}" -f $env:HOMEDRIVE, $env:HOMEPATH'
-            $parts = $remote -split '\|'
-            $parts[0] | Should Match '^[A-Za-z]:$'
-            $parts[1] | Should Not BeNullOrEmpty
+        It "$tC.$tI - HOMEDRIVE and HOMEPATH resolve to the user's profile" {
+            $hd = "$(ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %HOMEDRIVE%)".Trim()
+            $hp = "$(ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %HOMEPATH%)".Trim()
+            $up = "$(ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %USERPROFILE%)".Trim()
+            $hp | Should Not Match 'system32\\config\\systemprofile'
+            $hp | Should Not Match '^\\Windows'
+            $hp | Should Match ("^\\Users\\" + [regex]::Escape($script:envTestUser))
+            $hd | Should Be $env:SystemDrive
+            ($hd + $hp) | Should Be $up
         }
 
-        It "$tC.$tI - APPDATA and LOCALAPPDATA are populated and per-user" {
-            $remote = Invoke-RemotePS '"{0}|{1}" -f $env:APPDATA, $env:LOCALAPPDATA'
-            $parts = $remote -split '\|'
-            $parts[0] | Should Match 'AppData\\Roaming$'
-            $parts[1] | Should Match 'AppData\\Local$'
-            $parts[0] | Should Not Match 'system32\\config\\systemprofile'
-            $parts[1] | Should Not Match 'system32\\config\\systemprofile'
+        It "$tC.$tI - APPDATA is populated for user" {
+            $ad = "$(ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %APPDATA%)".Trim()
+            $ad | Should Not Match 'system32\\config\\systemprofile'
+            $ad | Should Match 'AppData\\Roaming$'
+            $ad | Should Match ([regex]::Escape($script:envTestUser))
         }
 
-        It "$tC.$tI - USERDOMAIN is populated and is not WORKGROUP" {
-            $remote = Invoke-RemotePS '$env:USERDOMAIN'
-            $remote | Should Not BeNullOrEmpty
+        It "$tC.$tI - LOCALAPPDATA is populated for user" {
+            $la = "$(ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %LOCALAPPDATA%)".Trim()
+            $la | Should Not Match 'system32\\config\\systemprofile'
+            $la | Should Match 'AppData\\Local$'
+            $la | Should Match ([regex]::Escape($script:envTestUser))
+        }
+
+        It "$tC.$tI - USERDOMAIN equals the local computer name" {
+            $o = ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %USERDOMAIN%
+            $remote = "$o".Trim()
             $remote | Should Not Be 'WORKGROUP'
+            $remote | Should Be $env:COMPUTERNAME
         }
     }
 
-    Context "$tC - PATH is the merged System + User PATH (Phase 1 fix)" {
+    Context "$tC - PATH variable" {
         BeforeAll {
             $tI = 1
-            # Write a unique marker into the SSO user's HKCU\Environment\Path
-            # from within an SSH session (we are not the user locally, so we
-            # cannot edit their HKCU directly without loading the hive).
             $script:pathMarker = "C:\sshtestmarker_$([guid]::NewGuid().ToString('N'))"
-            $setScript = @"
-`$existing = (Get-ItemProperty -Path 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path
-if (-not `$existing) { `$existing = '' }
-if (-not (`$existing -split ';' -contains '$($script:pathMarker)')) {
-    `$new = if (`$existing) { `$existing.TrimEnd(';') + ';$($script:pathMarker)' } else { '$($script:pathMarker)' }
-    Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value `$new -Type ExpandString
-}
-"@
-            Invoke-RemotePS $setScript | Out-Null
+            ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" `
+                reg add HKCU\Environment /v Path /t REG_EXPAND_SZ /d $($script:pathMarker) /f | Out-Null
         }
         AfterAll {
-            $clearScript = @"
-`$existing = (Get-ItemProperty -Path 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path
-if (`$existing) {
-    `$new = ((`$existing -split ';') | Where-Object { `$_ -ne '$($script:pathMarker)' }) -join ';'
-    Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value `$new -Type ExpandString
-}
-"@
-            Invoke-RemotePS $clearScript | Out-Null
+            ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" `
+                reg delete HKCU\Environment /v Path /f | Out-Null
             $tC++
         }
 
-        It "$tC.$tI - PATH contains BOTH the system entry and the user marker" {
-            $remote   = Invoke-RemotePS '$env:PATH'
+        It "$tC.$tI - contains both system and user entries" {
+            $o = ssh -p $port -i $script:envTestKey "$($script:envTestUser)@$server" echo %PATH%
+            $remote   = "$o".Trim()
             $segments = $remote -split ';'
-            ($segments | Where-Object { $_ -match '[Ss]ystem32' }).Count | Should BeGreaterThan 0
-            ($segments | Where-Object { $_ -eq $script:pathMarker }).Count | Should BeGreaterThan 0
-            $sysIndex    = ($segments | ForEach-Object { $_ }).IndexOf((($segments | Where-Object { $_ -match '[Ss]ystem32' }) | Select-Object -First 1))
-            $markerIndex = ($segments | ForEach-Object { $_ }).IndexOf($script:pathMarker)
-            $sysIndex    | Should BeGreaterThan -1
-            $markerIndex | Should BeGreaterThan -1
+            $sysMatches    = @($segments | Where-Object { $_ -match '[Ss]ystem32' })
+            $markerMatches = @($segments | Where-Object { $_ -eq $script:pathMarker })
+            $sysMatches.Count    | Should BeGreaterThan 0
+            $markerMatches.Count | Should BeGreaterThan 0
+            $sysIndex    = [array]::IndexOf($segments, $sysMatches[0])
+            $markerIndex = [array]::IndexOf($segments, $script:pathMarker)
             $sysIndex    | Should BeLessThan $markerIndex
         }
     }
