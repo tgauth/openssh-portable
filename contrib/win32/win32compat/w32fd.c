@@ -1097,14 +1097,15 @@ get_username_from_token(HANDLE as_user)
 
 /*
  * Build a PROC_THREAD_ATTRIBUTE_LIST that restricts handle inheritance to the
- * supplied set. posix_spawn_internal's dup_handle() guarantees every handle 
- * is non-NULL, distinct, and already marked HANDLE_FLAG_INHERIT.
+ * supplied set. Caller is expected to pass inheritable handles (entries that
+ * are not inheritable will cause CreateProcess to fail with ERROR_INVALID_PARAMETER);
+ * duplicate entries are tolerated by the kernel.
  *
  * On success returns a heap-allocated attribute list; caller must release it
  * with DeleteProcThreadAttributeList() followed by free(). Returns NULL on
  * any Win32 failure; caller should fall back to default inherit-all behavior.
  */
-static LPPROC_THREAD_ATTRIBUTE_LIST build_inherit_handle_attr_list(HANDLE *handles, DWORD count)
+static LPPROC_THREAD_ATTRIBUTE_LIST build_inherit_handle_attr_list(HANDLE *handles, SIZE_T count)
 {
 	LPPROC_THREAD_ATTRIBUTE_LIST attr_list = NULL;
 	SIZE_T attr_list_size = 0;
@@ -1116,13 +1117,13 @@ static LPPROC_THREAD_ATTRIBUTE_LIST build_inherit_handle_attr_list(HANDLE *handl
 	attr_list = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(attr_list_size);
 	if (!attr_list)
 		return NULL;
-	if (!InitializeProcThreadAttributeList(attr_list, 1, 0, &attr_list_size)) 
-	{
+	if (!InitializeProcThreadAttributeList(attr_list, 1, 0, &attr_list_size)) {
+		debug3("InitializeProcThreadAttributeList failed, error:%d", GetLastError());
 		free(attr_list);
 		return NULL;
 	}
-	if (!UpdateProcThreadAttribute(attr_list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles, count * sizeof(HANDLE), NULL, NULL)) 
-	{
+	if (!UpdateProcThreadAttribute(attr_list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles, count * sizeof(HANDLE), NULL, NULL)) {
+		debug3("UpdateProcThreadAttribute failed, error:%d", GetLastError());
 		DeleteProcThreadAttributeList(attr_list);
 		free(attr_list);
 		return NULL;
@@ -1337,6 +1338,13 @@ fd_decode_state(char* enc_buf)
 	return;
 }
 
+/*
+ * Duplicate stdio + aux fds for the child, build a STARTUPINFOEXW carrying a
+ * PROC_THREAD_ATTRIBUTE_HANDLE_LIST allow-list of just those handles, then
+ * hand off to spawn_child_internal(). Owns the lifetime of attr_list and the
+ * duplicated handles: both are released on the cleanup path after CreateProcess
+ * has either consumed or failed to consume them.
+ */
 int
 posix_spawn_internal(pid_t *pidp, const char *path, const posix_spawn_file_actions_t *file_actions, const posix_spawnattr_t *attrp, char *const argv[], char *const envp[], HANDLE user_token, BOOLEAN prepend_module_path)
 {
@@ -1347,8 +1355,8 @@ posix_spawn_internal(pid_t *pidp, const char *path, const posix_spawn_file_actio
 	HANDLE stdio_handles[STDERR_FILENO + 1];
 	STARTUPINFOEXW si_ex;
 	LPPROC_THREAD_ATTRIBUTE_LIST attr_list = NULL;
-	HANDLE inherit_list[3 + MAX_INHERITED_FDS];
-	DWORD inherit_count = 3;
+	HANDLE inherit_list[(STDERR_FILENO + 1) + MAX_INHERITED_FDS];
+	size_t inherit_count = STDERR_FILENO + 1;
 	if (file_actions == NULL || envp) {
 		errno = ENOTSUP;
 		return -1;
@@ -1381,7 +1389,12 @@ posix_spawn_internal(pid_t *pidp, const char *path, const posix_spawn_file_actio
 
 	/* assemble extended startup info: stdio handles + handle-inheritance allow-list */
 	memset(&si_ex, 0, sizeof(si_ex));
-	si_ex.StartupInfo.cb = sizeof(STARTUPINFOW);
+	/*
+	 * Always size cb as STARTUPINFOEXW. CreateProcess ignores the bytes past
+	 * STARTUPINFOW when EXTENDED_STARTUPINFO_PRESENT isn't set, so this is
+	 * safe on the attr_list-build-failed fallback path below.
+	 */
+	si_ex.StartupInfo.cb = sizeof(STARTUPINFOEXW);
 	si_ex.StartupInfo.hStdInput = stdio_handles[STDIN_FILENO];
 	si_ex.StartupInfo.hStdOutput = stdio_handles[STDOUT_FILENO];
 	si_ex.StartupInfo.hStdError = stdio_handles[STDERR_FILENO];
@@ -1392,10 +1405,10 @@ posix_spawn_internal(pid_t *pidp, const char *path, const posix_spawn_file_actio
 	 * With bInheritHandles=TRUE the kernel would otherwise duplicate every handle in
 	 * this process marked HANDLE_FLAG_INHERIT into the child.
 	 */
-	inherit_list[0] = stdio_handles[STDIN_FILENO];
-	inherit_list[1] = stdio_handles[STDOUT_FILENO];
-	inherit_list[2] = stdio_handles[STDERR_FILENO];
-	for (i = 0; i < file_actions->num_aux_fds && inherit_count < _countof(inherit_list); i++)
+	inherit_list[STDIN_FILENO] = stdio_handles[STDIN_FILENO];
+	inherit_list[STDOUT_FILENO] = stdio_handles[STDOUT_FILENO];
+	inherit_list[STDERR_FILENO] = stdio_handles[STDERR_FILENO];
+	for (i = 0; i < file_actions->num_aux_fds; i++)
 		inherit_list[inherit_count++] = aux_handles[i];
 
 	attr_list = build_inherit_handle_attr_list(inherit_list, inherit_count);
