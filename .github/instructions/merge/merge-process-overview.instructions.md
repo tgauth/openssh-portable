@@ -80,9 +80,9 @@ The process consists of several interconnected phases:
     ```pwsh
     # Note the current HEAD — this is the starting commit. The real merge
     # branch will be created from this same commit in the Real Branch Phase.
-    # Use a terminal command for this (Invoke-Git's Log Range parameter
-    # only accepts range expressions like "A..B" or a ref name — NOT git
-    # log flags like "-1"; passing flags yields MCP error -32603).
+    # Use a terminal command here: the MCPServerPS wrapper rejects string
+    # parameter values that start with "-" (e.g. Invoke-Git Log Range="-1"
+    # yields MCP error -32603, even though Invoke-Git.ps1 itself accepts it).
     git log -1 --oneline
 
     # Create the scratch branch (all work happens here)
@@ -297,14 +297,14 @@ The process consists of several interconnected phases:
 
 10. **Commit build fixes:**
     ```pwsh
-    # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Commit"
-    # Message="Fix compilation errors for <VERSION>
-    #
-    # Changes:
-    # - Updated config.h.vs with <new definitions>
-    # - Added Windows equivalent for <function>
-    # - Updated project files for <binary changes>"
+    # Use a terminal command: the MCPServerPS wrapper mangles embedded
+    # newlines in Invoke-Git's Message parameter, so the conventional
+    # header + body commit format must be expressed as repeated -m flags.
+    git commit -m "Fix compilation errors for <VERSION>" `
+               -m "Changes:" `
+               -m "- Updated config.h.vs with <new definitions>" `
+               -m "- Added Windows equivalent for <function>" `
+               -m "- Updated project files for <binary changes>"
     ```
 
 ---
@@ -327,12 +327,10 @@ The process consists of several interconnected phases:
 
 13. **Commit any test fixes:**
     ```pwsh
-    # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Commit"
-    # Message="Fix runtime issues for <VERSION>
-    #
-    # Issues resolved:
-    # - <specific problem and solution>"
+    # Use a terminal command (multi-line Messages break the MCP wrapper):
+    git commit -m "Fix runtime issues for <VERSION>" `
+               -m "Issues resolved:" `
+               -m "- <specific problem and solution>"
     ```
 
 ---

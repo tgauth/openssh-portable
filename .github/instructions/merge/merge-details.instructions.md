@@ -612,6 +612,7 @@ FUNCTION normalize_fork_workflow_triggers():
 
 ## Commit Message Template
 
+Desired commit object (header, blank line, body):
 ```
 Resolve merge conflicts for <upstream-version>
 
@@ -621,6 +622,13 @@ Major conflict resolutions:
 - <file3>: Accepted upstream <bugfix> completely
 
 Reasoning: <brief explanation of overall strategy>
+```
+
+Invoke via terminal — the MCPServerPS wrapper around `Invoke-Git` mangles embedded newlines in `Message`, so use repeated `-m` flags (git inserts the blank-line separators between them automatically):
+```pwsh
+git commit -m "Resolve merge conflicts for <upstream-version>" `
+           -m "Major conflict resolutions:`n- <file1>: Combined upstream <feature> with Windows <implementation> using #ifdef`n- <file2>: Excluded upstream <unix-feature> with #ifndef WINDOWS due to <reason>`n- <file3>: Accepted upstream <bugfix> completely" `
+           -m "Reasoning: <brief explanation of overall strategy>"
 ```
 
 ## Troubleshooting
