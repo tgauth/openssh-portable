@@ -18,7 +18,7 @@ Ensure the following tools are installed and configured before proceeding:
 ## Process Overview
 The merge process uses a **two-phase approach** to preserve upstream commit history while keeping conflict resolution manageable:
 
-1. **Scratch branch** — All work happens here: incremental `git merge` at batch boundaries, conflict resolution, build fixes, and full CI test suite runs after each batch.
+1. **Scratch branch** — All work happens here: incremental `git merge` at batch boundaries, conflict resolution, build fixes, and a `Test-OpenSSHFunctionality` smoke test after each built batch. The full CI suite (`Invoke-OpenSSHTests`) is only run when the user explicitly requests it (e.g., before the real branch / PR).
 2. **Real merge branch** — Created from the same starting commit as the scratch branch, after all scratch-branch work is complete. A single `git merge` of the final upstream target is performed; any conflicts are resolved by copying the already-resolved files from the scratch branch (`git checkout scratch-branch -- <file>`). This produces one merge commit with all upstream SHAs intact and a tree that matches the validated scratch-branch state.
 
 No `git rerere` recording, no resolution log, and no Save/Replay tooling is required.
@@ -72,8 +72,19 @@ The process consists of several interconnected phases:
 
 2. **Configure git:**
     ```pwsh
+    # Set non-interactive editor so MergeContinue does not block.
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Config", Key="core.editor", Value="true"
+    ```
+
+    **Disable `git rerere` for this merge.** The two-phase workflow does not
+    use rerere — resolutions are copied wholesale from the scratch branch in
+    the Real Branch Phase. Cached rerere resolutions from prior sessions can
+    silently auto-apply (possibly incomplete) resolutions during batch merges,
+    making conflict decisions opaque. Disable it explicitly:
+    ```pwsh
+    git config --local rerere.enabled false
+    git config --local rerere.autoupdate false
     ```
 
 3. **Create the scratch branch only (record the starting commit):**
@@ -207,20 +218,23 @@ The process consists of several interconnected phases:
      ```
      Commit any build fixes separately with descriptive messages (only actual code changes)
 
-10. **Run full CI validation after every batch that was built (mandatory when build ran):**
+10. **Run the functionality smoke test after every batch that was built (mandatory when build ran):**
     If step 9 was skipped (no `*.c`/`*.h` changes in the batch), skip this step as well.
-    Otherwise, run the full OpenSSH CI suite regardless of upstream CI status for the batch endpoint.
-    - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
-    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`, `TestSuite="All"`
+    Otherwise, run the cheap end-to-end SSH smoke test:
+    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
+    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 
-    If any suite fails:
-    - Capture failing suite details from tool output
-    - Re-run only the failing suite to iterate faster (`TestSuite="Unit"`, `TestSuite="Bash"`, or `TestSuite="E2E"`)
-    - For a single failing bash case, use `TestSuite="Bash"` and `BashTestFilePath="<absolute-path-to-test.sh>"`
-    - Fix issues and re-run full suite before proceeding to the next batch
+    If the smoke test fails, fix issues before proceeding to the next batch.
+
+    **Full CI suite (`Invoke-OpenSSHTests` with `TestSuite="All"`) is NOT run per-batch by default.** Run it only when:
+    - The user explicitly requests it for a given batch, or
+    - Before transitioning to the real merge branch (Phase 6), or
+    - Before creating the PR.
+
+    When you do run it and any suite fails, re-run only the failing suite to iterate faster (`TestSuite="Unit"`, `TestSuite="Bash"`, or `TestSuite="E2E"`). For a single failing bash case, use `TestSuite="Bash"` and `BashTestFilePath="<absolute-path-to-test.sh>"`.
 
 11. **Provide summary and get approval:**
-    - Summarize batch changes, conflicts resolved, build status, and full CI suite status (Unit/Bash/E2E)
+    - Summarize batch changes, conflicts resolved, build status, and smoke-test status (and full CI suite status if it was run)
     - Wait for user approval before proceeding to next batch
     - Document next steps (starting commit for next batch)
     - After all batches complete on the scratch branch, proceed to the Real Branch Phase

@@ -78,6 +78,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - Cherry-pick operations remain available for other use cases
    - Status: `git status`
    - Remotes: `origin`, `upstream-pwsh`, `upstream`
+   - **Do NOT enable `rerere.enabled`.** The two-phase merge workflow does not rely on rerere; resolutions are copied wholesale from the scratch branch in Phase 6. If `rerere.enabled` is set in the local repo, disable it (`git config --local rerere.enabled false; git config --local rerere.autoupdate false`) so cached resolutions cannot silently influence batch merges.
 
 6. **vcpkg dependency management** - Vendored library installation and updates
    - **Install tool**: `.\.github\tools\Install-VcpkgDependencies.ps1` (also exposed via MCP as `mcp_openssh-server_Install_VcpkgDependencies` when registered).
@@ -249,21 +250,23 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
    - Rebuild until successful
    - Commit build fixes with detailed description
 
-3. **Check if batch ended with successful CI:**
-   - Inspect the chunk's end commit CI status from Get-CommitGroups output
-   - Look for commits ending with `CIStatus: "success"` in the detailed output
-
-4. **If CI was successful, run validation tests:**
+3. **Run the functionality smoke test (mandatory after every successful build):**
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**: (use defaults for Release/x64)
 
    This test installs service, creates test user, validates SSH connectivity.
    If tests fail, fix issues and commit fixes.
-   **Do not proceed** to next batch until tests pass.
+   **Do not proceed** to next batch until the smoke test passes.
 
-5. **If CI was not successful (or no CI), skip validation:**
-   - Build success is sufficient to proceed
-   - Validation will be performed at next successful CI checkpoint
+4. **Full CI suite is NOT run per-batch by default.**
+   Run `mcp_openssh-server_Invoke_OpenSSHTests` with `TestSuite="All"` ONLY when:
+   - The user explicitly requests it for a batch, OR
+   - Before transitioning to the real merge branch (Phase 6), OR
+   - Before creating the PR.
+
+   When a full-suite run is requested and any sub-suite fails, re-run only the failing
+   suite (`TestSuite="Unit"`, `TestSuite="Bash"`, or `TestSuite="E2E"`). For a single
+   failing bash case, use `TestSuite="Bash"` with `BashTestFilePath="<absolute-path>"`.
 
 **Common Build Fixes:**
 - Missing source files in .vcxproj files
@@ -273,8 +276,8 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
 **Success Criteria:**
 - Clean build with no errors
 - All expected binaries generated
-- If batch had successful CI: validation tests pass
-- If batch had no/failed CI: build success is sufficient
+- `Test-OpenSSHFunctionality` smoke test passes
+- Full CI suite (if explicitly requested) passes
 
 ### Phase 4: Summary and Approval
 **Objective:** Summarize changes and get approval before proceeding
@@ -303,7 +306,8 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
    - Build fixes applied: <Yes/No - describe if yes>
 
    ### Validation Status:
-   - Validation tests: ✅ Passed / ⏭️ Skipped (no successful CI) / ❌ Failed
+   - Smoke test (`Test-OpenSSHFunctionality`): ✅ Passed / ⏭️ Skipped (no build) / ❌ Failed
+   - Full CI suite: ⏭️ Not run (default) / ✅ Passed / ❌ Failed
    - Test fixes applied: <describe if any>
 
    ### Next Steps:

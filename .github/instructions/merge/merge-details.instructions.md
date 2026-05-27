@@ -10,7 +10,7 @@ This AI-specific documentation provides comprehensive instructions and algorithm
 **Key Approach: Two-Phase Merge with Scratch Branch**
 Instead of cherry-picking commits (which rewrites history), this framework implements a two-phase approach:
 
-1. **Scratch branch** — All work happens here: incremental `git merge` at batch boundaries (grouped by CI presence or success), conflict resolution, build fixes, and full CI test suite runs after each batch.
+1. **Scratch branch** — All work happens here: incremental `git merge` at batch boundaries (grouped by CI presence or success), conflict resolution, build fixes, and a `Test-OpenSSHFunctionality` smoke test after each built batch. The full CI suite (`Invoke-OpenSSHTests`) is only run when the user explicitly requests it.
 2. **Real merge branch** — Created from the same starting commit as the scratch branch, after all scratch-branch work is complete. A single `git merge` of the final upstream target is performed; any conflicts are resolved by copying the already-resolved files from the scratch branch (`git checkout scratch-branch -- <file>`). This produces one merge commit with all upstream SHAs intact and a tree matching the validated scratch-branch state.
 
 No `git rerere`, no resolution log, and no Save/Replay tooling is needed.
@@ -19,7 +19,7 @@ Benefits:
 - Preserves upstream commit history exactly (original SHAs, authors, timestamps)
 - Conflicts on the real branch are resolved in seconds via file copy from the validated scratch branch
 - Builds after each batch on scratch branch (mandatory when the batch touches `*.c` or `*.h` files) for early error detection
-- Runs the full CI test suite after each built batch (mandatory when build ran), independent of upstream CI status
+- Runs the `Test-OpenSSHFunctionality` smoke test after each built batch (mandatory when build ran), independent of upstream CI status. The full CI suite is only run when the user explicitly requests it.
 - Requires user approval before proceeding to next batch
 - Allows for incremental progress and easier rollback
 - Reduces complexity of conflict resolution
@@ -351,14 +351,14 @@ FUNCTION determine_fix_strategy(error):
 
 ### Batch Test Invocation Policy (Scratch Branch)
 
-- After each batch merge is completed and builds cleanly, run the full CI test suite:
-    - **MCP Tool Name**: `mcp_openssh-server_Invoke_OpenSSHTests`
-    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`, `TestSuite="All"`
+- After each batch merge is completed and builds cleanly, run the functionality smoke test:
+    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
+    - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
 - This is mandatory for every batch **that was built** (i.e., the batch touched `*.c` or `*.h` files), regardless of whether the upstream endpoint commit had successful CI.
-- For batches that only modify documentation, regress scripts, or other non-compiled files, skip both build and CI test invocation.
-- If any suite fails, re-run only the failing suite while fixing (`TestSuite="Unit"`, `TestSuite="Bash"`, `TestSuite="E2E"`).
-- For bash triage, run a single failing test with `BashTestFilePath`.
-- Do not proceed to the next batch until the full suite passes (or user explicitly approves an exception).
+- For batches that only modify documentation, regress scripts, or other non-compiled files, skip both build and smoke-test invocation.
+- **Full CI suite (`Invoke-OpenSSHTests` with `TestSuite="All"`) is NOT run per-batch by default.** Only invoke it when the user explicitly requests it for a batch, before transitioning to the real merge branch, or before opening the PR.
+- If the smoke test fails, fix and re-run before proceeding to the next batch.
+- When a full-suite run is requested and any sub-suite fails, re-run only the failing suite while fixing (`TestSuite="Unit"`, `TestSuite="Bash"`, `TestSuite="E2E"`). For bash triage, run a single failing test with `BashTestFilePath`.
 
 ## Testing Automation Framework
 
