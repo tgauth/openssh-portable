@@ -80,8 +80,10 @@ The process consists of several interconnected phases:
     ```pwsh
     # Note the current HEAD — this is the starting commit. The real merge
     # branch will be created from this same commit in the Real Branch Phase.
-    # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Log", Range="-1"
+    # Use a terminal command for this (Invoke-Git's Log Range parameter
+    # only accepts range expressions like "A..B" or a ref name — NOT git
+    # log flags like "-1"; passing flags yields MCP error -32603).
+    git log -1 --oneline
 
     # Create the scratch branch (all work happens here)
     # MCP Tool: mcp_openssh-server_Invoke_Git
