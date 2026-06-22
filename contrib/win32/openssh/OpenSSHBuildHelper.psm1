@@ -559,6 +559,11 @@ function Start-OpenSSHBuild
     $VisualStudioPath = Get-VisualStudioPath -NativeHostArch $NativeHostArch
     if ($null -ne $VisualStudioPath) {
         $msbuildCmd = Get-MSBuildPath -VSInstallPath $VisualStudioPath
+        # Pin vcpkg's CMake to the same VS install / toolset (v143) as the
+        # OpenSSH vcxproj files, so manifest-mode auto-install doesn't pick a
+        # newer VS (e.g. VS 2026) whose v14x toolset is unsupported here.
+        $env:VCPKG_VISUAL_STUDIO_PATH = $VisualStudioPath
+        $env:VCPKG_PLATFORM_TOOLSET = "v143"
     }
     else {
         $msbuildCmd = Get-VS2015BuildToolPath
@@ -614,7 +619,12 @@ function Get-VisualStudioPath {
         $VSPaths = (& $vsWherePath -products * -requires $requiredVCtools -property installationPath)
         # for some reason, VSWhere does not seem to find MSBuild so check manually
         if ($null -ne $VSPaths) {
-            foreach ($VSPath in $VSPaths) {
+            # Prefer VS 2022 — the .vcxproj files pin <PlatformToolset>v143</PlatformToolset>,
+            # which ships with VS 2022. Older VS (2017=v141, 2019=v142) would need v143 build tools
+            # sideloaded; newer VS (e.g. 2026) defaults to v145 which isn't supported here.
+            $preferred = @($VSPaths | Where-Object { $_ -match '\\2022\\' })
+            $ordered = $preferred + @($VSPaths | Where-Object { $_ -notmatch '\\2022\\' })
+            foreach ($VSPath in $ordered) {
                 if (Get-MSBuildPath -VSInstallPath $VSPath) {
                     return $VSPath
                 }
@@ -637,9 +647,12 @@ function Get-MSBuildPath {
         [string]$VSInstallPath
     )
     $searchPath = "MSBuild\**\Bin\"
-    if($env:PROCESSOR_ARCHITECTURE -ieq "AMD64")
-    {
+    $systemType = (Get-CimInstance Win32_ComputerSystem).SystemType
+    if ($systemType -ieq "x64-based PC") {
         $searchPath += "\amd64"
+    }
+    elseif ($systemType -ieq "ARM64-based PC") {
+        $searchPath += "\arm64"
     }
     $fullSearchPath = Join-Path $VSInstallPath $searchPath
     $toolAvailable = Get-ChildItem -path $fullSearchPath\* -Filter "MSBuild.exe" -ErrorAction SilentlyContinue
