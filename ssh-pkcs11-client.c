@@ -599,7 +599,11 @@ pkcs11_add_provider(char *name, char *pin, struct sshkey ***keysp,
 {
 	struct sshkey *k;
 	int r, type;
+#ifdef WINDOWS
 	char *label = NULL;
+#else
+	char *label;
+#endif /* WINDOWS */
 	u_int ret = -1, nkeys, i;
 	struct sshbuf *msg;
 	struct helper *helper;
