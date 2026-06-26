@@ -225,12 +225,14 @@ window_change_handler(int sig)
 	received_window_change_signal = 1;
 }
 
+#ifdef SIGINFO
 /* Signal handler for SIGINFO */
 static void
 siginfo_handler(int sig)
 {
 	siginfo_received = 1;
 }
+#endif
 
 /*
  * Signal handler for signals that cause the program to terminate.  These
@@ -1530,7 +1532,9 @@ client_loop(struct ssh *ssh, int have_pty, int escape_char_arg,
 	if (ssh_signal(SIGTERM, SIG_IGN) != SIG_IGN)
 		ssh_signal(SIGTERM, signal_handler);
 	ssh_signal(SIGWINCH, window_change_handler);
+#ifdef SIGINFO
 	ssh_signal(SIGINFO, siginfo_handler);
+#endif
 
 	if (have_pty)
 		enter_raw_mode(options.request_tty == REQUEST_TTY_FORCE);
@@ -1553,8 +1557,10 @@ client_loop(struct ssh *ssh, int have_pty, int escape_char_arg,
 	    sigaddset(&bsigset, SIGHUP) == -1 ||
 	    sigaddset(&bsigset, SIGINT) == -1 ||
 	    sigaddset(&bsigset, SIGQUIT) == -1 ||
-	    sigaddset(&bsigset, SIGTERM) == -1 ||
-	    sigaddset(&bsigset, SIGINFO) == -1)
+#ifdef SIGINFO
+	    sigaddset(&bsigset, SIGINFO) == -1 ||
+#endif
+	    sigaddset(&bsigset, SIGTERM) == -1)
 		error_f("bsigset setup: %s", strerror(errno));
 
 	/* Main loop of the client for the interactive session mode. */
