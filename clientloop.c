@@ -1557,11 +1557,12 @@ client_loop(struct ssh *ssh, int have_pty, int escape_char_arg,
 	    sigaddset(&bsigset, SIGHUP) == -1 ||
 	    sigaddset(&bsigset, SIGINT) == -1 ||
 	    sigaddset(&bsigset, SIGQUIT) == -1 ||
-#ifdef SIGINFO
-	    sigaddset(&bsigset, SIGINFO) == -1 ||
-#endif
 	    sigaddset(&bsigset, SIGTERM) == -1)
 		error_f("bsigset setup: %s", strerror(errno));
+#ifdef SIGINFO
+	if (sigaddset(&bsigset, SIGINFO) == -1)
+		error_f("bsigset setup: %s", strerror(errno));
+#endif
 
 	/* Main loop of the client for the interactive session mode. */
 	while (!quit_pending) {

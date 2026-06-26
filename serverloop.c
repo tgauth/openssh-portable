@@ -343,13 +343,12 @@ server_loop2(struct ssh *ssh, Authctxt *authctxt)
 	debug("Entering interactive session for SSH2.");
 
 	if (sigemptyset(&bsigset) == -1 ||
-#ifdef SIGINFO
-	    sigaddset(&bsigset, SIGINFO) == -1 ||
-#endif
 	    sigaddset(&bsigset, SIGCHLD) == -1)
 		error_f("bsigset setup: %s", strerror(errno));
 	ssh_signal(SIGCHLD, sigchld_handler);
 #ifdef SIGINFO
+	if (sigaddset(&bsigset, SIGINFO) == -1)
+		error_f("bsigset setup: %s", strerror(errno));
 	ssh_signal(SIGINFO, siginfo_handler);
 #endif
 	child_terminated = 0;
