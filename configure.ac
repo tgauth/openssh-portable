@@ -629,6 +629,9 @@ SOLARIS_PRIVS="no"
 # Default shared library extension
 SHLIBEXT=".so"
 
+# See OpenBSD section in $host case below.
+need_pledge_inet=""
+
 # Check for some target-specific stuff
 case "$host" in
 *-*-aix*)
@@ -1128,6 +1131,28 @@ mips-sony-bsd|mips-sony-newsos4)
 	AC_DEFINE([SYSLOG_R_SAFE_IN_SIGHAND], [1],
 	    [syslog_r function is safe to use in in a signal handler])
 	TEST_MALLOC_OPTIONS="SJRU"
+	AC_MSG_CHECKING([whether pledge(2) allows IP_TOS])
+	AC_RUN_IFELSE(
+	    [AC_LANG_PROGRAM([[
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <err.h>
+	    ]], [[
+int s, one = 1;
+if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+	err(1, "socket");
+if (pledge("stdio", NULL) == -1)
+	err(1, "pledge");
+if (setsockopt(s, IPPROTO_IP, IP_TOS, &one, sizeof(one)) == -1)
+	err(1, "setsockopt");
+	    ]])],
+	    [ AC_MSG_RESULT([yes]) ], [
+		AC_MSG_RESULT([no])
+		need_pledge_inet=1
+	    ],
+	    [ AC_MSG_WARN([cross compiling: cannot test]) ])
 	;;
 *-*-solaris*)
 	if test "x$withval" != "xno" ; then
@@ -1400,6 +1425,14 @@ AC_RUN_IFELSE([AC_LANG_PROGRAM([[ #include <stdlib.h> ]], [[ exit(0); ]])],
 	],
 	[	AC_MSG_WARN([cross compiling: not checking compiler sanity]) ]
 )
+
+dnl Finish up special pledge(2) handling from above.
+if test -z "$need_pledge_inet" ; then
+	AC_DEFINE_UNQUOTED([PLEDGE_EXTRA_INET], [])
+else
+	AC_DEFINE_UNQUOTED([PLEDGE_EXTRA_INET], ["inet "],
+		[need inet in pledge for setsockopt IP_TOS])
+fi
 
 dnl Checks for header files.
 # Checks for libraries.
