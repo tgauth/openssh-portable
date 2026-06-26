@@ -1393,6 +1393,9 @@
  with an extra level of indirection */
 /* #undef PAM_SUN_CODEBASE */
 
+/* need inet in pledge for setsockopt IP_TOS; not required on Windows (pledge is a no-op) */
+#define PLEDGE_EXTRA_INET
+
 /* Work around problematic Linux PAM modules handling of PAM_TTY */
 /* #undef PAM_TTY_KLUDGE */
 
