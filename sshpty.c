@@ -22,18 +22,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
-#ifdef HAVE_PATHS_H
-# include <paths.h>
-#endif
+#include <paths.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <termios.h>
-#ifdef HAVE_UTIL_H
-# include <util.h>
-#endif
 #include <unistd.h>
+#include <util.h>
 
 #include "sshpty.h"
 #include "log.h"

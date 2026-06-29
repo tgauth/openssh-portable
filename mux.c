@@ -34,21 +34,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#ifdef HAVE_PATHS_H
 #include <paths.h>
-#endif
 
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#else
-# ifdef HAVE_SYS_POLL_H
-#  include <sys/poll.h>
-# endif
-#endif
 
-#ifdef HAVE_UTIL_H
-# include <util.h>
-#endif
+#include <util.h>
 
 #include "openbsd-compat/sys-queue.h"
 #include "xmalloc.h"

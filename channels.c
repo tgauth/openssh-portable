@@ -46,9 +46,7 @@
 #include <sys/ioctl.h>
 #include <sys/un.h>
 #include <sys/socket.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -57,13 +55,9 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#endif
 #include <stdarg.h>
-#ifdef HAVE_STDINT_H
-# include <stdint.h>
-#endif
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -24,15 +24,11 @@
 #include "openbsd-compat/openssl-compat.h"
 #endif
 
-#ifdef HAVE_STDINT_H
-# include <stdint.h>
-#endif
+#include <stdint.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#ifdef HAVE_PATHS_H
-# include <paths.h>
-#endif
+#include <paths.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -56,7 +52,6 @@
 #include "ssh.h"
 #include "ssh2.h"
 #include "ssherr.h"
-#include "ssh-pkcs11.h"
 #include "atomicio.h"
 #include "krl.h"
 #include "digest.h"
@@ -66,6 +61,10 @@
 #include "ssh-sk.h"
 #include "sk-api.h" /* XXX for SSH_SK_USER_PRESENCE_REQD; remove */
 #include "cipher.h"
+
+#ifdef ENABLE_PKCS11
+#include "ssh-pkcs11.h"
+#endif
 
 #ifdef WINDOWS
 #define DEFAULT_KEY_TYPE_NAME "ecdsa"

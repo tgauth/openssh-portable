@@ -40,9 +40,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 
 #include <netinet/in.h>
 
@@ -50,9 +48,7 @@
 #include <fcntl.h>
 #include <pwd.h>
 #include <limits.h>
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#endif
 #include <signal.h>
 #include <string.h>
 #include <termios.h>

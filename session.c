@@ -36,9 +36,7 @@
 #include "includes.h"
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -50,9 +48,7 @@
 #include <fcntl.h>
 #include <grp.h>
 #include <netdb.h>
-#ifdef HAVE_PATHS_H
 #include <paths.h>
-#endif
 #include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -75,9 +71,7 @@
 #include "channels.h"
 #include "sshkey.h"
 #include "cipher.h"
-#ifdef GSSAPI
-#include "ssh-gss.h"
-#endif
+#include "kex.h"
 #include "hostfile.h"
 #include "auth.h"
 #include "auth-options.h"
@@ -90,7 +84,9 @@
 #include "serverloop.h"
 #include "canohost.h"
 #include "session.h"
-#include "kex.h"
+#ifdef GSSAPI
+#include "ssh-gss.h"
+#endif
 #include "monitor_wrap.h"
 #include "sftp.h"
 #include "atomicio.h"

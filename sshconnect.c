@@ -19,9 +19,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 
 #include <net/if.h>
 #include <netinet/in.h>
@@ -32,22 +30,16 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
-#ifdef HAVE_PATHS_H
 #include <paths.h>
-#endif
 #include <pwd.h>
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
-#ifdef HAVE_IFADDRS_H
-# include <ifaddrs.h>
-#endif
+#include <ifaddrs.h>
 
 #ifdef WINDOWS
 #include "sshTelemetry.h"

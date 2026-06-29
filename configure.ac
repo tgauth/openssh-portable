@@ -457,7 +457,6 @@ AC_CHECK_HEADERS([ \
 	crypt.h \
 	crypto/sha2.h \
 	dirent.h \
-	endian.h \
 	elf.h \
 	err.h \
 	features.h \
@@ -468,7 +467,6 @@ AC_CHECK_HEADERS([ \
 	glob.h \
 	ia.h \
 	iaf.h \
-	ifaddrs.h \
 	inttypes.h \
 	langinfo.h \
 	limits.h \
@@ -478,10 +476,7 @@ AC_CHECK_HEADERS([ \
 	ndir.h \
 	net/if_tun.h \
 	netdb.h \
-	netgroup.h \
 	pam/pam_appl.h \
-	paths.h \
-	poll.h \
 	pty.h \
 	readpassphrase.h \
 	rpc/types.h \
@@ -489,7 +484,6 @@ AC_CHECK_HEADERS([ \
 	sha2.h \
 	shadow.h \
 	stddef.h \
-	stdint.h \
 	string.h \
 	strings.h \
 	sys/bitypes.h \
@@ -514,22 +508,53 @@ AC_CHECK_HEADERS([ \
 	sys/strtio.h \
 	sys/statvfs.h \
 	sys/sysmacros.h \
-	sys/time.h \
 	sys/timers.h \
 	sys/vfs.h \
-	time.h \
 	tmpdir.h \
 	ttyent.h \
 	ucred.h \
 	unistd.h \
 	usersec.h \
-	util.h \
 	utime.h \
 	utmp.h \
 	utmpx.h \
 	vis.h \
 	wchar.h \
 ])
+
+# Create replacement header files for common headers that are missing on this
+# platform.  Usually these are just empty, but in some cases they'll include
+# the equivalent file.  This avoids having to wrap those includes in
+# '#ifdef HAVE_FOO_H'.  If we create any such headers, add the path to includes.
+compatincludes=no
+AC_CHECK_HEADERS([ \
+    endian.h \
+    ifaddrs.h \
+    libgen.h \
+    paths.h \
+    netgroup.h \
+    nlist.h \
+    poll.h \
+    stdint.h \
+    sys/stat.h \
+    sys/time.h \
+    sys/un.h \
+    time.h \
+    util.h], [], [
+	compatincludes="`pwd`/openbsd-compat/include"
+	header="$compatincludes/$ac_header"
+	dir=`dirname "$header"`
+	mkdir -p "$dir"
+	case "$ac_header" in
+	poll.h) echo '#ifdef HAVE_SYS_POLL_H'
+	        echo '#include <sys/poll.h>'
+	        echo '#endif' ;;
+	*)      ;;
+	esac >"$header"
+])
+if test "$compatincludes" != "no"; then
+    CPPFLAGS="$CPPFLAGS -I$compatincludes"
+fi
 
 AC_CHECK_DECLS([le32toh, le64toh, htole64], [], [], [
 #ifdef HAVE_SYS_TYPES_H
@@ -1095,6 +1120,8 @@ mips-sony-bsd|mips-sony-newsos4)
 *-*-freebsd*)
 	AC_DEFINE([LOCKED_PASSWD_PREFIX], ["*LOCKED*"], [Account locked with pw(1)])
 	AC_DEFINE([SSH_TUN_FREEBSD], [1], [Open tunnel devices the FreeBSD way])
+	AC_DEFINE([SSH_TUN_COMPAT_AF], [1],
+	    [Use tunnel device compatibility to OpenBSD])
 	AC_CHECK_HEADER([net/if_tap.h], ,
 	    AC_DEFINE([SSH_TUN_NO_L2], [1], [No layer 2 tunnel support]))
 	AC_DEFINE([BROKEN_GLOB], [1], [FreeBSD glob does not do what we need])
@@ -2079,6 +2106,7 @@ AC_CHECK_FUNCS([ \
 	memset_s \
 	mkdtemp \
 	ngetaddrinfo \
+	nlist \
 	nsleep \
 	ogetaddrinfo \
 	openlog_r \
@@ -3029,8 +3057,8 @@ if test "x$openssl" = "xyes" ; then
 				*) ;;	# Assume all other versions are good.
 				esac
 				;;
-			30*)
-				# OpenSSL 3; we use the 1.1x API
+			30*|40*)
+				# OpenSSL 3 & 4; we use the 1.1x API
 				# https://openssl.org/policies/general/versioning-policy.html
 				CPPFLAGS="$CPPFLAGS -DOPENSSL_API_COMPAT=0x10100000L"
 				;;

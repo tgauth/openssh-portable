@@ -74,19 +74,9 @@
 #include "includes.h"
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
-#ifdef HAVE_POLL_H
+#include <sys/stat.h>
 #include <poll.h>
-#else
-# ifdef HAVE_SYS_POLL_H
-#  include <sys/poll.h>
-# endif
-#endif
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <sys/uio.h>
 
@@ -102,20 +92,14 @@
 #else
 # include "openbsd-compat/glob.h"
 #endif
-#ifdef HAVE_LIBGEN_H
 #include <libgen.h>
-#endif
 #include <limits.h>
-#ifdef HAVE_UTIL_H
-# include <util.h>
-#endif
+#include <util.h>
 #include <locale.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdarg.h>
-#ifdef HAVE_STDINT_H
-# include <stdint.h>
-#endif
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -43,9 +43,7 @@
 #include "includes.h"
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
+#include <sys/stat.h>
 #include <sys/resource.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -58,9 +56,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#ifdef HAVE_PATHS_H
 #include <paths.h>
-#endif
 #include <pwd.h>
 #include <signal.h>
 #include <stdarg.h>

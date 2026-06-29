@@ -29,9 +29,7 @@
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_TIME_H
-# include <time.h>
-#endif
+#include <time.h>
 #include <unistd.h>
 
 #include "digest.h"

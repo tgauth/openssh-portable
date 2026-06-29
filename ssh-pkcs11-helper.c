@@ -18,15 +18,11 @@
 #include "includes.h"
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 
 #include <stdlib.h>
 #include <errno.h>
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#endif
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>

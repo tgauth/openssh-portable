@@ -12,9 +12,7 @@
 #include <sys/types.h>
 #include "openbsd-compat/sys-queue.h"
 #include <sys/resource.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -23,15 +21,13 @@
 #include <openssl/bn.h>
 #endif
 
+#include <errno.h>
 #include <limits.h>
 #include <netdb.h>
-#include <errno.h>
-#ifdef HAVE_POLL_H
-#include <poll.h>
-#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <poll.h>
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>

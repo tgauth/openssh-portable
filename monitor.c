@@ -34,26 +34,16 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#ifdef HAVE_PATHS_H
 #include <paths.h>
-#endif
 #include <pwd.h>
 #include <signal.h>
-#ifdef HAVE_STDINT_H
-# include <stdint.h>
-#endif
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <unistd.h>
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#else
-# ifdef HAVE_SYS_POLL_H
-#  include <sys/poll.h>
-# endif
-#endif
 
 #ifdef WITH_OPENSSL
 #include <openssl/dh.h>

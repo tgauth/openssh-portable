@@ -41,12 +41,8 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
-#ifdef HAVE_SYS_UN_H
-# include <sys/un.h>
-#endif
+#include <sys/time.h>
+#include <sys/un.h>
 #include "openbsd-compat/sys-queue.h"
 
 #ifdef WITH_OPENSSL
@@ -57,12 +53,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#ifdef HAVE_PATHS_H
-# include <paths.h>
-#endif
-#ifdef HAVE_POLL_H
-# include <poll.h>
-#endif
+#include <paths.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -70,9 +62,7 @@
 #include <time.h>
 #include <string.h>
 #include <unistd.h>
-#ifdef HAVE_UTIL_H
-# include <util.h>
-#endif
+#include <util.h>
 
 #include "xmalloc.h"
 #include "ssh.h"

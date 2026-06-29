@@ -42,9 +42,7 @@
 #include <sys/types.h>
 #include "openbsd-compat/sys-queue.h"
 #include <sys/socket.h>
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/time.h>
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -58,9 +56,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#endif
 #include <signal.h>
 #include <time.h>
 

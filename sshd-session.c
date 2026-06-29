@@ -32,12 +32,8 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
-#ifdef HAVE_SYS_TIME_H
-# include <sys/time.h>
-#endif
+#include <sys/stat.h>
+#include <sys/time.h>
 #include "openbsd-compat/sys-tree.h"
 #include "openbsd-compat/sys-queue.h"
 #include <sys/wait.h>
@@ -45,9 +41,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#ifdef HAVE_PATHS_H
-# include <paths.h>
-#endif
+#include <paths.h>
 #include <pwd.h>
 #include <grp.h>
 #include <signal.h>
