@@ -93,10 +93,18 @@ ${SSHD_KEYS}
 MaxStartups 1:2:3
 MaxStartups 8:16:32
 EOD
-($SUDO ${SSHD} -T -f $OBJ/sshd_config.1 | \
- grep '^maxstartups ' >$OBJ/sshd_config.2 &&
- diff $OBJ/sshd_config.0 $OBJ/sshd_config.2) || \
- fail "maxstartups idempotence"
+if [ "$os" == "windows" ]; then
+	# Ignore the CR (carriage return) during diff
+	($SUDO ${SSHD} -T -f $OBJ/sshd_config.1 | \
+	 grep '^maxstartups ' >$OBJ/sshd_config.2 &&
+	 diff --strip-trailing-cr $OBJ/sshd_config.0 $OBJ/sshd_config.2) || \
+	 fail "maxstartups idempotence"
+else
+	($SUDO ${SSHD} -T -f $OBJ/sshd_config.1 | \
+	 grep '^maxstartups ' >$OBJ/sshd_config.2 &&
+	 diff $OBJ/sshd_config.0 $OBJ/sshd_config.2) || \
+	 fail "maxstartups idempotence"
+fi
 
 # cleanup
 rm -f $OBJ/sshd_config.[012]
