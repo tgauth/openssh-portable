@@ -150,26 +150,72 @@ function Get-GitHubHeaders {
     return $headers
 }
 
+# Determine whether a caught error represents GitHub API rate-limit exhaustion.
+# Handles both Windows PowerShell 5.1 (WebException) and PowerShell 7+ (HttpResponseException).
+function Test-IsRateLimitError {
+    param($ErrorRecord)
+
+    $statusCode = $null
+    try { $statusCode = [int]$ErrorRecord.Exception.Response.StatusCode } catch {}
+
+    $remaining = $null
+    try {
+        $respHeaders = $ErrorRecord.Exception.Response.Headers
+        if ($respHeaders) {
+            $val = $respHeaders['X-RateLimit-Remaining']
+            if ($val -is [System.Array]) { $val = $val[0] }
+            if ($null -ne $val) { $remaining = "$val" }
+        }
+    } catch {}
+
+    $text = "$($ErrorRecord.Exception.Message) $($ErrorRecord.ErrorDetails.Message)"
+
+    if ($statusCode -eq 429) { return $true }
+    if ($statusCode -eq 403 -and ($remaining -eq '0' -or $text -match 'rate limit')) { return $true }
+    if ($text -match 'API rate limit exceeded' -or $text -match 'secondary rate limit') { return $true }
+    return $false
+}
+
+# Wrapper around Invoke-RestMethod that converts a GitHub rate-limit response into a
+# terminating, clearly-marked error. This prevents the script from silently treating a
+# rate-limited (unknown) commit as a valid CI boundary and emitting a bogus batch.
+function Invoke-GitHubApi {
+    param([Parameter(Mandatory=$true)][string]$Uri)
+
+    try {
+        return Invoke-RestMethod -Uri $Uri -Headers (Get-GitHubHeaders) -ErrorAction Stop
+    } catch {
+        if (Test-IsRateLimitError $_) {
+            throw "GITHUB_RATE_LIMIT_EXCEEDED: GitHub API rate limit exhausted while requesting $Uri. $($_.Exception.Message)"
+        }
+        throw
+    }
+}
+
 # Get the starting commit SHA
 try {
     if ($GitHubTag) {
-        $tagInfo = Invoke-RestMethod -Uri "$apiBase/git/refs/tags/$GitHubTag" -Headers (Get-GitHubHeaders)
+        $tagInfo = Invoke-GitHubApi -Uri "$apiBase/git/refs/tags/$GitHubTag"
         $startCommitSha = $tagInfo.object.sha
 
         # If it's an annotated tag, we need to get the actual commit
         if ($tagInfo.object.type -eq "tag") {
-            $tagObject = Invoke-RestMethod -Uri $tagInfo.object.url -Headers (Get-GitHubHeaders)
+            $tagObject = Invoke-GitHubApi -Uri $tagInfo.object.url
             $startCommitSha = $tagObject.object.sha
         }
 
         Write-Host "Tag $GitHubTag points to commit: $startCommitSha" -ForegroundColor Green
     } else {
         # Validate the commit exists
-        $commitInfo = Invoke-RestMethod -Uri "$apiBase/commits/$StartCommit" -Headers (Get-GitHubHeaders)
+        $commitInfo = Invoke-GitHubApi -Uri "$apiBase/commits/$StartCommit"
         $startCommitSha = $commitInfo.sha
         Write-Host "Starting from commit: $startCommitSha" -ForegroundColor Green
     }
 } catch {
+    if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') {
+        Write-Error "$_`nAborting: cannot reliably determine commit batches without GitHub API access. Set GITHUB_TOKEN (5,000 req/hr) or wait for the rate limit to reset, then re-run."
+        exit 1
+    }
     Write-Error "Failed to retrieve starting commit information: $_"
     exit 1
 }
@@ -189,7 +235,7 @@ function Get-CommitCIStatus {
         # Fetch all pages of check runs
         do {
             $checkRunsUrl = "$apiBase/commits/$sha/check-runs?per_page=$perPage&page=$page"
-            $response = Invoke-RestMethod -Uri $checkRunsUrl -Headers (Get-GitHubHeaders)
+            $response = Invoke-GitHubApi -Uri $checkRunsUrl
 
             $allCheckRuns += $response.check_runs
             $page++
@@ -222,6 +268,9 @@ function Get-CommitCIStatus {
             return "failure"
         }
     } catch {
+        # Rate-limit exhaustion must NOT be swallowed as "unknown" - re-throw so the
+        # whole script fails rather than fabricating a batch from incomplete CI data.
+        if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') { throw }
         Write-Warning "Could not get CI status for commit $sha : $_"
         return "unknown"
     }
@@ -233,7 +282,7 @@ function Get-CommitDetails {
 
     try {
         $commitUrl = "$apiBase/commits/$sha"
-        $commit = Invoke-RestMethod -Uri $commitUrl -Headers (Get-GitHubHeaders)
+        $commit = Invoke-GitHubApi -Uri $commitUrl
         return @{
             Sha = $commit.sha.Substring(0, 7)
             FullSha = $commit.sha
@@ -242,6 +291,8 @@ function Get-CommitDetails {
             Date = $commit.commit.author.date
         }
     } catch {
+        # Re-throw rate-limit errors so the script aborts instead of dropping commits.
+        if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') { throw }
         Write-Warning "Could not get commit details for $sha"
         return $null
     }
@@ -262,7 +313,7 @@ try {
     # The Compare API doesn't support pagination, so we need to use commits API instead
     # to get commits in the correct range with proper pagination
     $compareUrl = "$apiBase/compare/${startCommitSha}...$endRef"
-    $comparison = Invoke-RestMethod -Uri $compareUrl -Headers (Get-GitHubHeaders)
+    $comparison = Invoke-GitHubApi -Uri $compareUrl
 
     # The Compare API returns commits - need to verify order
     # According to GitHub API docs, commits are in chronological order (oldest first)
@@ -281,7 +332,7 @@ try {
         # Now compare from start to this oldest commit to narrow down the range
         $limitedCompareUrl = "$apiBase/compare/${startCommitSha}...${oldestCommitSha}"
         Write-Host "Comparing $startCommitSha...$oldestCommitSha" -ForegroundColor Gray
-        $comparison = Invoke-RestMethod -Uri $limitedCompareUrl -Headers (Get-GitHubHeaders)
+        $comparison = Invoke-GitHubApi -Uri $limitedCompareUrl
 
         $allCommits = @($comparison.commits)
         Write-Host "Narrowed to $($comparison.total_commits) total commits ($($allCommits.Count) returned)" -ForegroundColor Green
@@ -290,6 +341,10 @@ try {
     $startRef = if ($GitHubTag) { "tag $GitHubTag" } else { "commit $StartCommit" }
     Write-Host "Found $($allCommits.Count) commits from $startRef" -ForegroundColor Green
 } catch {
+    if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') {
+        Write-Error "$_`nAborting: cannot reliably determine commit batches without GitHub API access. Set GITHUB_TOKEN (5,000 req/hr) or wait for the rate limit to reset, then re-run."
+        exit 1
+    }
     Write-Error "Failed to fetch commits: $_"
     exit 1
 }
@@ -303,6 +358,31 @@ $chunks = @()
 $commitCount = 0
 $chunkStart = 0
 
+# Proactive rate-limit budget check. CI status + commit details cost ~3 core API calls per
+# commit. Failing now with a clear message is far better than exhausting the limit mid-scan
+# and emitting an incomplete batch that looks valid. The /rate_limit endpoint itself is free.
+try {
+    $rl = Invoke-RestMethod -Uri "https://api.github.com/rate_limit" -Headers (Get-GitHubHeaders) -ErrorAction Stop
+    $coreRemaining = [int]$rl.resources.core.remaining
+    $coreResetAt = [DateTimeOffset]::FromUnixTimeSeconds([long]$rl.resources.core.reset).LocalDateTime
+    $estimatedNeeded = [Math]::Max(1, $allCommits.Count) * 3
+    Write-Host "GitHub API budget: $coreRemaining core requests remaining (need ~$estimatedNeeded for $($allCommits.Count) commits; resets $coreResetAt)" -ForegroundColor Gray
+    if ($coreRemaining -lt $estimatedNeeded) {
+        Write-Error ("GITHUB_RATE_LIMIT_EXCEEDED: Insufficient GitHub API budget to evaluate CI for all $($allCommits.Count) commits. " +
+            "Have $coreRemaining core requests, need ~$estimatedNeeded. Rate limit resets at $coreResetAt. " +
+            "Set GITHUB_TOKEN for a higher limit (5,000/hr) or wait for the reset. " +
+            "Aborting so an incomplete CI scan cannot be mistaken for a valid batch.")
+        exit 1
+    }
+} catch {
+    if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') {
+        Write-Error "$_"
+        exit 1
+    }
+    Write-Warning "Could not pre-check GitHub rate limit (continuing; the per-commit scan will still abort on exhaustion): $_"
+}
+
+try {
 foreach ($commit in $allCommits) {
     $commitCount++
     Write-Host "Processing commit $commitCount of $($allCommits.Count): $($commit.sha.Substring(0,7))" -ForegroundColor Gray
@@ -354,6 +434,17 @@ foreach ($commit in $allCommits) {
     if (-not $script:githubToken) {
         Start-Sleep -Milliseconds 200
     }
+}
+} catch {
+    # A rate-limit exhaustion bubbling up from Get-CommitCIStatus / Get-CommitDetails means the
+    # CI scan is incomplete. We must fail rather than return a batch derived from partial data.
+    if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') {
+        Write-Error ("GITHUB_RATE_LIMIT_EXCEEDED: GitHub API rate limit was exhausted after processing " +
+            "$commitCount of $($allCommits.Count) commits. The CI scan is incomplete, so NO batch can be " +
+            "reliably determined. Set GITHUB_TOKEN (5,000/hr) or wait for the rate limit to reset, then re-run. Aborting.")
+        exit 1
+    }
+    throw
 }
 
 # Handle remaining commits that don't end with success (only if not FirstChunkOnly or no chunk found)
