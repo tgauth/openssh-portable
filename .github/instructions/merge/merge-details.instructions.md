@@ -231,6 +231,53 @@ If this ordering is wrong, common symptoms are:
 - post-auth `Invalid user` with empty username
 - monitor keystate errors like `incomplete message`
 
+### Pattern 5: Upstream Changes to Regress Tests With Existing Windows Adaptations
+
+Many bash regression tests under `regress/*.sh` have already been adapted for
+Windows in this fork using `if [ "$os" == "windows" ]; then ... else ... fi`
+blocks. The most common adaptation wraps `diff` so it tolerates the CRLF line
+endings that Windows binaries (e.g. `sshd -T`) emit:
+
+```sh
+if [ "$os" == "windows" ]; then
+	# Ignore the CR (carriage return) during diff
+	diff --strip-trailing-cr $OBJ/expected $OBJ/actual || fail "..."
+else
+	diff $OBJ/expected $OBJ/actual || fail "..."
+fi
+```
+
+**The risk:** When upstream adds a *new* test case (or modifies an existing
+one) inside a file that already contains these Windows blocks, the new code is
+merged verbatim from upstream and arrives with a plain `diff` (or other
+Unix-only assumption). Git does not flag a conflict because the surrounding
+Windows blocks are untouched, so the regression only surfaces later as a
+Windows-specific test failure (the plain `diff` reports trailing-`\r`
+mismatches).
+
+**Required check during merge:** For every `regress/*.sh` file touched by an
+upstream batch, determine whether the file *already* contains
+`if [ "$os" == "windows" ]` blocks. If it does, inspect each upstream addition
+or modification in that file and apply the same Windows adaptation to the new
+code:
+
+```pseudocode
+FUNCTION check_regress_test_windows_adaptations(changed_files):
+    FOR EACH file IN changed_files WHERE file MATCHES "regress/*.sh":
+        IF file CONTAINS 'if [ "$os" == "windows" ]':
+            // File is already Windows-aware
+            FOR EACH upstream_added_or_modified_block IN file:
+                IF block USES diff AND NOT wrapped_in_windows_conditional(block):
+                    wrap_with_windows_conditional(block)  // use diff --strip-trailing-cr
+                IF block USES other Unix-only assumption (paths, perms, signals):
+                    apply_matching_windows_adaptation(block)
+```
+
+Real example: the OpenSSH 10.3 merge brought in a new "MaxStartups idempotence"
+case in `regress/cfgparse.sh`. The surrounding `listenaddress` tests already had
+`diff --strip-trailing-cr` Windows blocks, but the new case used a plain `diff`
+and failed on Windows until it was wrapped in the same conditional.
+
 ## Common Conflict Patterns
 
 ### File System Operations
@@ -253,6 +300,14 @@ If this ordering is wrong, common symptoms are:
 - **New config options** → Add to `./contrib/win32/openssh/config.h.vs`
 - **Feature detection** → Verify Windows support
 - **Default values** → Adjust for Windows environment
+
+### Regress Test Changes (`regress/*.sh`)
+- **File already has `if [ "$os" == "windows" ]` blocks** → Check every upstream
+  addition/modification in that file and apply the same Windows adaptation
+  (e.g. `diff --strip-trailing-cr`). Git will not flag a conflict because the
+  existing Windows blocks are untouched. See [Pattern 5](#pattern-5-upstream-changes-to-regress-tests-with-existing-windows-adaptations).
+- **New `diff` comparisons** → Wrap with `diff --strip-trailing-cr` on Windows
+  to tolerate CRLF output from Windows binaries.
 
 ## Resolution Workflow
 
