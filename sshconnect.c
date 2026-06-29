@@ -30,7 +30,9 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
+#ifdef HAVE_PATHS_H
 #include <paths.h>
+#endif
 #include <pwd.h>
 #include <poll.h>
 #include <signal.h>
@@ -39,7 +41,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef HAVE_IFADDRS_H
 #include <ifaddrs.h>
+#endif
 
 #ifdef WINDOWS
 #include "sshTelemetry.h"

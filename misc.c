@@ -34,7 +34,9 @@
 #include <limits.h>
 #include <libgen.h>
 #include <poll.h>
+#ifdef HAVE_NLIST
 #include <nlist.h>
+#endif
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -54,7 +56,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
+#ifdef HAVE_PATHS_H
 #include <paths.h>
+#endif
 #include <pwd.h>
 #include <grp.h>
 #ifdef SSH_TUN_OPENBSD
