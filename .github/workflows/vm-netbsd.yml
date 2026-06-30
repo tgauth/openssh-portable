@@ -10,10 +10,11 @@
 
 name: VM NetBSD CI
 on:
-  push:
-    paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/vm-netbsd.yml' ]
-  pull_request:
-    paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/vm-netbsd.yml' ]
+  workflow_dispatch: # disable for win32-openssh fork
+  # push:
+  #   paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/vm-netbsd.yml' ]
+  # pull_request:
+  #   paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/vm-netbsd.yml' ]
 
 jobs:
   ci:
