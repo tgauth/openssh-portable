@@ -3,7 +3,7 @@ name: C/C++ CI self-hosted
 on:
   workflow_dispatch: # disable for win32-openssh fork
   # push:
-  #   paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/selfhosted.yml' ]
+  #   paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/run_tests.sh', '.github/workflows/selfhosted.yml' ]
 
 jobs:
   selfhosted:

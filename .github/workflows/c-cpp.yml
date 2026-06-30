@@ -13,9 +13,9 @@ name: C/C++ CI
 on:
   workflow_dispatch: # disable for win32-openssh fork
   # push:
-  #  paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/c-cpp.yml' ]
+  #  paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/*.sh', '.github/workflows/c-cpp.yml' ]
   # pull_request:
-  #  paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/workflows/c-cpp.yml' ]
+  #  paths: [ '**.c', '**.h', '**.m4', '**.sh', '**/Makefile.in', 'configure.ac', '.github/configs', '.github/*.sh', '.github/workflows/c-cpp.yml' ]
 
 jobs:
   ci:
@@ -93,11 +93,17 @@ jobs:
           - { target: ubuntu-latest, config: openssl-3.2.3 }
           - { target: ubuntu-latest, config: openssl-3.3.2 }
           - { target: ubuntu-latest, config: openssl-3.4.0 }
+          - { target: ubuntu-latest, config: openssl-3.4.2 }
+          - { target: ubuntu-latest, config: openssl-3.5.0 }
+          - { target: ubuntu-latest, config: openssl-3.5.3 }
           - { target: ubuntu-latest, config: openssl-1.1.1_stable }
           - { target: ubuntu-latest, config: openssl-3.0 }  # stable branch
           - { target: ubuntu-latest, config: openssl-3.1 }  # stable branch
           - { target: ubuntu-latest, config: openssl-3.2 }  # stable branch
           - { target: ubuntu-latest, config: openssl-3.3 }  # stable branch
+          - { target: ubuntu-latest, config: openssl-3.4 }  # stable branch
+          - { target: ubuntu-latest, config: openssl-3.5 }  # stable branch
+          - { target: ubuntu-latest, config: openssl-3.6 }  # stable branch
           - { target: ubuntu-latest, config: putty-0.71 }
           - { target: ubuntu-latest, config: putty-0.72 }
           - { target: ubuntu-latest, config: putty-0.73 }
@@ -160,6 +166,11 @@ jobs:
         TEST_SSH_UNSAFE_PERMISSIONS: 1
         TEST_SSH_HOSTBASED_AUTH: yes
         LTESTS: ${{ vars.LTESTS }}
+    - name: test OpenSSL3 ABI compatibility
+      if: ${{ startsWith(matrix.config, 'openssl-3') }}
+      run: |
+       sh .github/install_libcrypto.sh -a ${{ matrix.config }} /opt/openssl
+       sh .github/run_test.sh ${{ matrix.config }}
     - name: show logs
       if: failure()
       run: for i in regress/failed*.log; do echo ====; echo logfile $i; echo =====; cat $i; done
