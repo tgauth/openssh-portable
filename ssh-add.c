@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-add.c,v 1.178 2025/09/11 07:22:37 djm Exp $ */
+/* $OpenBSD: ssh-add.c,v 1.180 2025/09/25 07:00:43 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -669,6 +669,47 @@ stringlist_append(char ***listp, const char *s)
 }
 
 static void
+stringlist_free(char **list)
+{
+	size_t i = 0;
+
+	if (list == NULL)
+		return;
+	for (i = 0; list[i] != NULL; i++)
+		free(list[i]);
+	free(list);
+}
+
+static void
+free_dest_constraint_hop(struct dest_constraint_hop *dch)
+{
+	u_int i;
+
+	if (dch == NULL)
+		return;
+	free(dch->user);
+	free(dch->hostname);
+	for (i = 0; i < dch->nkeys; i++)
+		sshkey_free(dch->keys[i]);
+	free(dch->keys);
+	free(dch->key_is_ca);
+}
+
+static void
+free_dest_constraints(struct dest_constraint **dcs, size_t ndcs)
+{
+	size_t i;
+
+	for (i = 0; i < ndcs; i++) {
+		free_dest_constraint_hop(&dcs[i]->from);
+		free_dest_constraint_hop(&dcs[i]->to);
+		free(dcs[i]);
+	}
+	free(dcs);
+}
+
+
+static void
 parse_dest_constraint_hop(const char *s, struct dest_constraint_hop *dch,
     char **hostkey_files)
 {
@@ -803,7 +844,7 @@ main(int argc, char **argv)
 	LogLevel log_level = SYSLOG_LEVEL_INFO;
 	struct sshkey *k, **certs = NULL;
 	struct dest_constraint **dest_constraints = NULL;
-	size_t ndest_constraints = 0, ncerts = 0;
+	size_t n, ndest_constraints = 0, ncerts = 0;
 
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
@@ -984,6 +1025,9 @@ main(int argc, char **argv)
 		    dest_constraints, ndest_constraints,
 		    certs, ncerts) == -1)
 			ret = 1;
+		for (n = 0; n < ncerts; n++)
+			sshkey_free(certs[n]);
+		free(certs);
 		goto done;
 	}
 	if (do_download) {
@@ -1031,6 +1075,9 @@ main(int argc, char **argv)
 	}
 done:
 	clear_pass();
+	stringlist_free(hostkey_files);
+	stringlist_free(dest_constraint_strings);
+	free_dest_constraints(dest_constraints, ndest_constraints);
 	ssh_close_authentication_socket(agent_fd);
 	return ret;
 }

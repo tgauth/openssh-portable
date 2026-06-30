@@ -1,4 +1,4 @@
-/* $OpenBSD: scp.c,v 1.266 2025/09/15 05:17:37 djm Exp $ */
+/* $OpenBSD: scp.c,v 1.268 2025/09/25 06:23:19 jsg Exp $ */
 /*
  * scp - secure remote copy.  This is basically patched BSD rcp which
  * uses ssh to do the data transfer (instead of using rcmd).
@@ -1887,7 +1887,7 @@ sink_sftp(int argc, char *dst, const char *src, struct sftp_conn *conn)
 	}
 
 	/* Did we actually get any matches back from the glob? */
-	if (g.gl_matchc == 0 && g.gl_pathc == 1 && g.gl_pathv[0] != 0) {
+	if (g.gl_matchc == 0 && g.gl_pathc == 1 && g.gl_pathv[0] != NULL) {
 		/*
 		 * If nothing matched but a path returned, then it's probably
 		 * a GLOB_NOCHECK result. Check whether the unglobbed path
@@ -2204,7 +2204,7 @@ bad:			run_err("%s: %s", np, strerror(errno));
 		/*
 		 * NB. do not use run_err() unless immediately followed by
 		 * exit() below as it may send a spurious reply that might
-		 * desyncronise us from the peer. Use note_err() instead.
+		 * desynchronise us from the peer. Use note_err() instead.
 		 */
 		statbytes = 0;
 		if (showprogress)
@@ -2355,7 +2355,7 @@ throughlocal_sftp(struct sftp_conn *from, struct sftp_conn *to,
 	}
 
 	/* Did we actually get any matches back from the glob? */
-	if (g.gl_matchc == 0 && g.gl_pathc == 1 && g.gl_pathv[0] != 0) {
+	if (g.gl_matchc == 0 && g.gl_pathc == 1 && g.gl_pathv[0] != NULL) {
 		/*
 		 * If nothing matched but a path returned, then it's probably
 		 * a GLOB_NOCHECK result. Check whether the unglobbed path
@@ -2565,7 +2565,7 @@ allocbuf(BUF *bp, int fd, int blksize)
 
 	if (fstat(fd, &stb) == -1) {
 		run_err("fstat: %s", strerror(errno));
-		return (0);
+		return (NULL);
 	}
 	size = ROUNDUP(stb.st_blksize, blksize);
 	if (size == 0)

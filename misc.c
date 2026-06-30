@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.206 2025/09/04 00:31:49 djm Exp $ */
+/* $OpenBSD: misc.c,v 1.208 2025/09/25 06:33:19 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005-2020 Damien Miller.  All rights reserved.
@@ -520,7 +520,7 @@ strdelim(char **s)
 }
 
 /*
- * Return next token in configuration line; splts on whitespace only.
+ * Return next token in configuration line; splits on whitespace only.
  */
 char *
 strdelimw(char **s)
@@ -553,6 +553,25 @@ pwcopy(struct passwd *pw)
 	copy->pw_shell = xstrdup(pw->pw_shell);
 
 	return copy;
+}
+
+void
+pwfree(struct passwd *pw)
+{
+	if (pw == NULL)
+		return;
+	free(pw->pw_name);
+	freezero(pw->pw_passwd,
+	    pw->pw_passwd == NULL ? 0 : strlen(pw->pw_passwd));
+#ifdef HAVE_STRUCT_PASSWD_PW_GECOS
+	free(pw->pw_gecos);
+#endif
+#ifdef HAVE_STRUCT_PASSWD_PW_CLASS
+	free(pw->pw_class);
+#endif
+	free(pw->pw_dir);
+	free(pw->pw_shell);
+	freezero(pw, sizeof(*pw));
 }
 
 /*
