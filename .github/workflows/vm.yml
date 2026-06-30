@@ -8,7 +8,7 @@
 #
 # LTESTS: Override the set of tests run.
 
-name: VM CI
+name: CI VM
 on:
   workflow_dispatch: # disable for win32-openssh fork
   # push:

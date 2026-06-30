@@ -1,4 +1,4 @@
-#	$OpenBSD: cfgparse.sh,v 1.8 2025/09/01 23:55:29 djm Exp $
+#	$OpenBSD: cfgparse.sh,v 1.9 2025/09/26 04:40:45 dtucker Exp $
 #	Placed in the Public Domain.
 
 tid="sshd config parse"

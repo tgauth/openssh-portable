@@ -1,4 +1,4 @@
-name: Upstream self-hosted
+name: OpenBSD
 
 on:
   workflow_dispatch: # disable for win32-openssh fork

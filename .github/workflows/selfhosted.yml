@@ -1,4 +1,4 @@
-name: C/C++ CI self-hosted
+name: CI self-hosted
 
 on:
   workflow_dispatch: # disable for win32-openssh fork
