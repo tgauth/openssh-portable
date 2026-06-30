@@ -87,7 +87,7 @@ fi
 
 # Check idempotence of MaxStartups
 verbose "maxstartups idempotent"
-echo "maxstartups 1:2:3" > sshd_config.0
+echo "maxstartups 1:2:3" > $OBJ/sshd_config.0
 cat > $OBJ/sshd_config.1 <<EOD
 ${SSHD_KEYS}
 MaxStartups 1:2:3
