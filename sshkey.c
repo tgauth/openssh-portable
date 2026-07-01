@@ -738,39 +738,33 @@ sshkey_sk_cleanup(struct sshkey *k)
 static int
 sshkey_prekey_alloc(u_char **prekeyp, size_t len)
 {
+#if defined(HAVE_MMAP) && defined(MAP_ANON) && defined(MAP_PRIVATE)
 	u_char *prekey;
 
 	*prekeyp = NULL;
-#ifdef WINDOWS
-	prekey = VirtualAlloc(NULL, len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	if (prekey == NULL) {
-		return SSH_ERR_SYSTEM_ERROR;
-	}
-	VirtualLock(prekey, len);
-#else
 	if ((prekey = mmap(NULL, len, PROT_READ|PROT_WRITE,
 	    MAP_ANON|MAP_PRIVATE|PREKEY_MMAP_FLAG, -1, 0)) == MAP_FAILED)
 		return SSH_ERR_SYSTEM_ERROR;
 #if defined(MADV_DONTDUMP) && !defined(MAP_CONCEAL) && !defined(MAP_NOCORE)
 	(void)madvise(prekey, len, MADV_DONTDUMP);
 #endif
-#endif /* WINDOWS */
 	*prekeyp = prekey;
+#else
+	*prekeyp = calloc(1, len);
+#endif /* HAVE_MMAP et al */
 	return 0;
 }
 
 static void
 sshkey_prekey_free(void *prekey, size_t len)
 {
+#if defined(HAVE_MMAP) && defined(MAP_ANON) && defined(MAP_PRIVATE)
 	if (prekey == NULL)
 		return;
-#ifdef WINDOWS
-	SecureZeroMemory(prekey, len);
-	VirtualUnlock(prekey, len);
-	VirtualFree(prekey, 0, MEM_RELEASE);
-#else
 	munmap(prekey, len);
-#endif /* WINDOWS */
+#else
+	free(prekey);
+#endif /* HAVE_MMAP et al */
 }
 
 static void
