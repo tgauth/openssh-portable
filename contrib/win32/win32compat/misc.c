@@ -213,45 +213,6 @@ gettimeofday(struct timeval *tv, void *tz)
 	return 0;
 }
 
-/*
- * Minimal clock_gettime() so callers that use it directly (e.g. the unit
- * test benchmark helper and misc-agent.c) resolve the symbol from our own
- * compat layer instead of accidentally pulling it from a third-party
- * library such as fido2.lib. Returns wall-clock time for all clock ids.
- */
-int
-clock_gettime(clockid_t clock_id, struct timespec *tp)
-{
-	union {
-		FILETIME ft;
-		unsigned long long ns; /* 100ns intervals since Jan 1, 1601 */
-	} timehelper;
-	unsigned long long ns100;
-
-	if (tp == NULL) {
-		errno = EFAULT;
-		return -1;
-	}
-
-	switch (clock_id) {
-	case CLOCK_REALTIME:
-	case CLOCK_MONOTONIC:
-		/* Fetch time since Jan 1, 1601 in 100ns increments */
-		GetSystemTimeAsFileTime(&timehelper.ft);
-
-		/* Remove the epoch difference to get time since Jan 1, 1970 */
-		ns100 = timehelper.ns - EPOCH_DELTA;
-
-		/* NSEC_IN_SEC / 100 == number of 100ns intervals per second */
-		tp->tv_sec = (time_t)(ns100 / (NSEC_IN_SEC / 100));
-		tp->tv_nsec = (long)((ns100 % (NSEC_IN_SEC / 100)) * 100);
-		return 0;
-	default:
-		errno = EINVAL;
-		return -1;
-	}
-}
-
 void
 explicit_bzero(void *b, size_t len)
 {

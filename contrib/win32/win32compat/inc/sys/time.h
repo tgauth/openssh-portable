@@ -18,17 +18,7 @@ struct itimerval {
 
 #define ITIMER_REAL 0
 
-#ifndef CLOCK_REALTIME
-#define CLOCK_REALTIME 0
-#endif
-#ifndef CLOCK_MONOTONIC
-#define CLOCK_MONOTONIC 1
-#endif
-
-typedef int clockid_t;
-
 int usleep(unsigned int);
 int gettimeofday(struct timeval *, void *);
 int nanosleep(const struct timespec *, struct timespec *);
-int clock_gettime(clockid_t, struct timespec *);
 int w32_utimes(const char *, struct timeval *);
