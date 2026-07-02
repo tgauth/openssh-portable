@@ -292,5 +292,5 @@ basename(char *path)
 	if (pdest)
 		return (pdest + 1);
 
-	return path; /* path does not have a slash */
+	return bname; /* no slash: return the copy with trailing slashes stripped */
 }

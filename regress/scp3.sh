@@ -90,7 +90,7 @@ for mode in scp sftp ; do
 	test $mode != sftp && continue
 	verbose "$tag: recursive .."
 	forest
-	$SCP $scpopts -r hostA:${DIR}/subdir/.. hostB:${DIR2} || \
+	$SCP "${scpopts[@]}" -r hostA:${DIR}/subdir/.. hostB:${DIR2} || \
 		fail "copy failed"
 	diff ${DIFFOPT} ${DIR} ${DIR2} || fail "corrupted copy"
 done

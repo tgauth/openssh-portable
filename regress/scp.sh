@@ -231,12 +231,12 @@ for mode in scp sftp ; do
 	test $mode != sftp && continue
 	verbose "$tag: recursive local .. to remote dir"
 	forest
-	$SCP $scpopts -r ${DIR}/subdir/.. somehost:${DIR2} || fail "copy failed"
+	$SCP "${scpopts[@]}" -r ${DIR}/subdir/.. somehost:${DIR2} || fail "copy failed"
 	diff ${DIFFOPT} ${DIR} ${DIR2} || fail "corrupted copy"
 
 	verbose "$tag: recursive remote .. to local dir"
 	forest
-	$SCP $scpopts -r somehost:${DIR}/subdir/.. ${DIR2} || fail "copy failed"
+	$SCP "${scpopts[@]}" -r somehost:${DIR}/subdir/.. ${DIR2} || fail "copy failed"
 	diff ${DIFFOPT} ${DIR} ${DIR2} || fail "corrupted copy"
 done
 
