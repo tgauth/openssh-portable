@@ -1,4 +1,4 @@
-#	$OpenBSD: ssh-tty.sh,v 1.1 2025/10/20 00:45:10 djm Exp $
+#	$OpenBSD: ssh-tty.sh,v 1.4 2025/10/21 22:13:27 djm Exp $
 #	Placed in the Public Domain.
 
 # Basic TTY smoke test
@@ -10,9 +10,13 @@ FAKEHOME="$OBJ/.fakehome"
 rm -rf "$FAKEHOME"
 mkdir -m 0700 -p "$FAKEHOME"
 
+case "${PATH}${HOME}" in
+*\ *|*\t*) skip "\$PATH or \$HOME has whitespace, not supported in this test";;
+esac
+
 # tmux stuff
-TMUX=tmux
-test -x $TMUX || skip "tmux not found"
+TMUX=${TMUX:-tmux}
+type $TMUX >/dev/null || skip "tmux not found"
 CLEANENV="env -i HOME=$HOME LOGNAME=$USER USER=$USER PATH=$PATH SHELL=$SHELL"
 TMUX_TEST="$CLEANENV $TMUX -f/dev/null -Lopenssh-regress-ssh-tty"
 sess="regress-ssh-tty$$"
@@ -30,6 +34,8 @@ MAGIC3="woLF1701d"
 MAGIC3_OCTAL="\167\157\114\106\061\067\060\061\144"
 MAGIC4="lUh4thX4evR"
 MAGIC4_OCTAL="\154\125\150\064\164\150\130\064\145\166\122"
+MAGIC5="AllMo1000x"
+MAGIC5_OCTAL="\101\154\154\115\157\061\060\060\060\170"
 
 # Wait for a mux process to become ready.
 wait_for_mux_ready()
@@ -57,6 +63,7 @@ wait_for_regex() {
 	string="$1"
 	errors_are_fatal="$2"
 	for x in 1 2 3 4 5 6 7 8 9 10 ; do
+set -x
 		$TMUX_TEST capture-pane -pt $sess | grep "$string" >/dev/null
 		[ $? -eq 0 ] && return
 		sleep 1
@@ -90,7 +97,7 @@ run_test() {
 	# Prepare a tmux session.
 	$TMUX_TEST kill-session -t $sess 2>/dev/null
 	$TMUX_TEST new-session -d -s $sess
-	#echo XXXXXXXXXX $sess; sleep 10
+	# echo XXXXXXXXXX $TMUX_TEST attach -t $sess; sleep 10
 
 	# Command to start SSH; sent as keystrokes to tmux session.
 	RCMD="$CLEANENV $SHELL"
@@ -108,13 +115,15 @@ run_test() {
 	verbose "${tag}: ^c interrupts process"
 	# ^c should interrupt the sleep and prevent the magic string
 	# from appearing.
-	$TMUX_TEST send-keys -t $sess "sleep 30 || printf '$MAGIC3_OCTAL\n'"
+	$TMUX_TEST send-keys -t $sess \
+		"printf '$MAGIC3_OCTAL' ; sleep 30 || printf '$MAGIC4_OCTAL\n'"
 	$TMUX_TEST send-keys -t $sess ENTER
+	wait_for_regex "$MAGIC3" # Command has executed.
 	$TMUX_TEST send-keys -t $sess "C-c"
 	# send another string to let us know that the sleep has finished.
-	$TMUX_TEST send-keys -t $sess "printf '$MAGIC4_OCTAL\n'" ENTER
-	wait_for_regex "$MAGIC4"
-	not_in_term "$MAGIC3" "^c did not interrupt"
+	$TMUX_TEST send-keys -t $sess "printf '$MAGIC5_OCTAL\n'" ENTER
+	wait_for_regex "$MAGIC5"
+	not_in_term "$MAGIC4" "^c did not interrupt"
 
 	verbose "${tag}: ~? produces help"
 	$TMUX_TEST send-keys -t $sess ENTER "~?"
@@ -143,6 +152,7 @@ not_in_term "$MAGIC1" "terminal already contains magic1 string" fatal
 not_in_term "$MAGIC2" "terminal already contains magic2 string" fatal
 not_in_term "$MAGIC3" "terminal already contains magic3 string" fatal
 not_in_term "$MAGIC4" "terminal already contains magic4 string" fatal
+not_in_term "$MAGIC5" "terminal already contains magic5 string" fatal
 not_in_term "^Supported escape" "terminal already contains escape help" fatal
 $TMUX_TEST send-keys -t $sess "printf '$MAGIC1_OCTAL\n'" ENTER
 wait_for_regex "$MAGIC1" fatal

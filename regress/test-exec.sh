@@ -1,4 +1,4 @@
-#	$OpenBSD: test-exec.sh,v 1.132 2025/10/16 00:01:54 djm Exp $
+#	$OpenBSD: test-exec.sh,v 1.133 2025/10/21 07:18:27 dtucker Exp $
 #	Placed in the Public Domain.
 
 #SUDO=sudo
@@ -179,6 +179,9 @@ if [ "x$TEST_SSH_DROPBEARKEY" != "x" ]; then
 fi
 if [ "x$TEST_SSH_DROPBEARCONVERT" != "x" ]; then
 	DROPBEARCONVERT="${TEST_SSH_DROPBEARCONVERT}"
+fi
+if [ "x$TEST_SSH_TMUX" != "x" ]; then
+	TMUX="${TEST_SSH_TMUX}"
 fi
 if [ "x$TEST_SSH_PKCS11_HELPER" != "x" ]; then
 	SSH_PKCS11_HELPER="${TEST_SSH_PKCS11_HELPER}"
@@ -587,11 +590,12 @@ save_debug_log ()
 
 	for logfile in $TEST_SSH_LOGDIR $TEST_REGRESS_LOGFILE \
 	    $TEST_SSH_LOGFILE $TEST_SSHD_LOGFILE; do
-		if [ ! -z "$SUDO" ] && [ -e "$logfile" ]; then
+		if [ ! -z "$SUDO" ]; then
+			touch $logfile
 			$SUDO chown -R $USER $logfile
+			$SUDO chmod ug+rw $logfile
 		fi
 	done
-	test -z "$SUDO" || $SUDO chmod ug+rw $TEST_SSHD_LOGFILE
 	echo $@ >>$TEST_REGRESS_LOGFILE
 	echo $@ >>$TEST_SSH_LOGFILE
 	echo $@ >>$TEST_SSHD_LOGFILE
