@@ -247,6 +247,7 @@ do_local_cmd(arglist *a)
 	{
 		char* cmd;
 		size_t cmdlen = 0;
+		int i;
 		for (i = 0; i < a->num; i++)
 			cmdlen += strlen(a->list[i]) + 1;
 
