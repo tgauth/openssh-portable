@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd-session.c,v 1.18 2025/12/16 08:32:50 dtucker Exp $ */
+/* $OpenBSD: sshd-session.c,v 1.19 2025/12/30 00:35:37 djm Exp $ */
 /*
  * SSH2 implementation:
  * Privilege Separation:
@@ -1768,6 +1768,10 @@ main(int ac, char **av)
 	send_kex_exch_exit_code_telemetry(0);
 #endif /* WINDOWS */
 idexch_done:
+
+	if ((ssh->compat & SSH_BUG_NOREKEY))
+		debug("client does not support rekeying");
+
 	ssh_packet_set_nonblocking(ssh);
 
 	/* allocate authentication context */
