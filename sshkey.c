@@ -1,4 +1,4 @@
-/* $OpenBSD: sshkey.c,v 1.158 2025/11/25 01:08:35 djm Exp $ */
+/* $OpenBSD: sshkey.c,v 1.159 2025/12/22 01:49:03 djm Exp $ */
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Alexander von Gernler.  All rights reserved.
@@ -2401,8 +2401,8 @@ sshkey_certify(struct sshkey *k, struct sshkey *ca, const char *alg,
 
 int
 sshkey_cert_check_authority(const struct sshkey *k,
-    int want_host, int require_principal, int wildcard_pattern,
-    uint64_t verify_time, const char *name, const char **reason)
+    int want_host, int wildcard_pattern, uint64_t verify_time,
+    const char *name, const char **reason)
 {
 	u_int i, principal_matches;
 
@@ -2432,66 +2432,63 @@ sshkey_cert_check_authority(const struct sshkey *k,
 		return SSH_ERR_KEY_CERT_INVALID;
 	}
 	if (k->cert->nprincipals == 0) {
-		if (require_principal) {
-			*reason = "Certificate lacks principal list";
-			return SSH_ERR_KEY_CERT_INVALID;
-		}
-	} else if (name != NULL) {
-		principal_matches = 0;
-		for (i = 0; i < k->cert->nprincipals; i++) {
+		*reason = "Certificate lacks principal list";
+		return SSH_ERR_KEY_CERT_INVALID;
+	}
+	if (name == NULL)
+		return 0; /* principal matching not requested */
 
+	principal_matches = 0;
+	for (i = 0; i < k->cert->nprincipals; i++) {
 #ifdef WINDOWS
-			char cert_principal_name_copy[UNLEN + DNLEN + 1 + 1] = { 0, };
-			strcpy_s(cert_principal_name_copy, _countof(cert_principal_name_copy), k->cert->principals[i]);
+		char cert_principal_name_copy[UNLEN + DNLEN + 1 + 1] = { 0, };
+		strcpy_s(cert_principal_name_copy, _countof(cert_principal_name_copy), k->cert->principals[i]);
 
-			/*
-			* For domain user we need special handling.
-			* We support both "domain\user" and "domain/user" formats.
-			*/
-			if (strstr(name, "/") || strstr(name, "\\")) {
-				char *tmp = NULL;
-				if (tmp = strstr(cert_principal_name_copy, "/"))
-					*tmp = '\\';
-			}
+		/*
+		* For domain user we need special handling.
+		* We support both "domain\user" and "domain/user" formats.
+		*/
+		if (strstr(name, "/") || strstr(name, "\\")) {
+			char *tmp = NULL;
+			if (tmp = strstr(cert_principal_name_copy, "/"))
+				*tmp = '\\';
+		}
 
-			/* In windows, usernames are case insensitive */
-			if (wildcard_pattern) {
-				/* Use match_pattern_list for case insensitive compairision */
-				if (match_pattern_list(cert_principal_name_copy,
-				    name, 1)) {
-					principal_matches = 1;
-					break;
-				}
-			} else if (_strcmpi(name, cert_principal_name_copy) == 0) {
+		/* In windows, usernames are case insensitive */
+		if (wildcard_pattern) {
+			/* Use match_pattern_list for case insensitive comparison */
+			if (match_pattern_list(name, cert_principal_name_copy, 1)) {
 				principal_matches = 1;
 				break;
 			}
+		} else if (_strcmpi(name, cert_principal_name_copy) == 0) {
+			principal_matches = 1;
+			break;
+		}
 #else
-			if (wildcard_pattern) {
-				if (match_pattern(k->cert->principals[i],
-				    name)) {
-					principal_matches = 1;
-					break;
-				}
-			} else if (strcmp(name, k->cert->principals[i]) == 0) {
+		if (wildcard_pattern) {
+			if (match_pattern(name, k->cert->principals[i])) {
 				principal_matches = 1;
 				break;
 			}
+		} else if (strcmp(name, k->cert->principals[i]) == 0) {
+			principal_matches = 1;
+			break;
+		}
 #endif
-		}
-		if (!principal_matches) {
-			*reason = "Certificate invalid: name is not a listed "
-			    "principal";
-			return SSH_ERR_KEY_CERT_INVALID;
-		}
+	}
+	if (!principal_matches) {
+		*reason = "Certificate invalid: name is not a listed "
+		    "principal";
+		return SSH_ERR_KEY_CERT_INVALID;
 	}
 	return 0;
 }
 
 int
 sshkey_cert_check_authority_now(const struct sshkey *k,
-    int want_host, int require_principal, int wildcard_pattern,
-    const char *name, const char **reason)
+    int want_host, int wildcard_pattern, const char *name,
+    const char **reason)
 {
 	time_t now;
 
@@ -2500,19 +2497,17 @@ sshkey_cert_check_authority_now(const struct sshkey *k,
 		*reason = "Certificate invalid: not yet valid";
 		return SSH_ERR_KEY_CERT_INVALID;
 	}
-	return sshkey_cert_check_authority(k, want_host, require_principal,
-	    wildcard_pattern, (uint64_t)now, name, reason);
+	return sshkey_cert_check_authority(k, want_host, wildcard_pattern,
+	    (uint64_t)now, name, reason);
 }
 
 int
 sshkey_cert_check_host(const struct sshkey *key, const char *host,
-    int wildcard_principals, const char *ca_sign_algorithms,
-    const char **reason)
+    const char *ca_sign_algorithms, const char **reason)
 {
 	int r;
 
-	if ((r = sshkey_cert_check_authority_now(key, 1, 0, wildcard_principals,
-	    host, reason)) != 0)
+	if ((r = sshkey_cert_check_authority_now(key, 1, 1, host, reason)) != 0)
 		return r;
 	if (sshbuf_len(key->cert->critical) != 0) {
 		*reason = "Certificate contains unsupported critical options";
