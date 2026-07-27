@@ -1,4 +1,4 @@
-/* $OpenBSD: gss-serv.c,v 1.35 2025/12/22 03:12:05 djm Exp $ */
+/* $OpenBSD: gss-serv.c,v 1.36 2026/02/08 15:28:01 dtucker Exp $ */
 
 /*
  * Copyright (c) 2001-2003 Simon Wilkinson. All rights reserved.
@@ -30,7 +30,9 @@
 
 #include <sys/types.h>
 #include <sys/param.h>
+#include <sys/queue.h>
 
+#include <netdb.h>
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>

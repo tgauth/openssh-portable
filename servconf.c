@@ -30,6 +30,7 @@
 #endif
 
 #include <ctype.h>
+#include <glob.h>
 #include <netdb.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -42,11 +43,6 @@
 #include <errno.h>
 #ifdef HAVE_UTIL_H
 #include <util.h>
-#endif
-#ifdef USE_SYSTEM_GLOB
-# include <glob.h>
-#else
-# include "openbsd-compat/glob.h"
 #endif
 
 #include "openbsd-compat/sys-queue.h"

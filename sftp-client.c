@@ -1,4 +1,4 @@
-/* $OpenBSD: sftp-client.c,v 1.181 2025/12/22 01:20:39 djm Exp $ */
+/* $OpenBSD: sftp-client.c,v 1.182 2026/02/08 03:30:15 dtucker Exp $ */
 /*
  * Copyright (c) 2001-2004 Damien Miller <djm@openbsd.org>
  *
@@ -33,8 +33,8 @@
 
 #include <dirent.h>
 #include <errno.h>
-#include <poll.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>

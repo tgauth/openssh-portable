@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.407 2025/11/20 05:10:11 dtucker Exp $ */
+/* $OpenBSD: readconf.c,v 1.408 2026/02/08 19:54:31 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -28,6 +28,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #ifdef HAVE_IFADDRS_H
 #include <ifaddrs.h>
 #endif
@@ -43,11 +44,6 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <sshfileperm.h>
-#ifdef USE_SYSTEM_GLOB
-# include <glob.h>
-#else
-# include "openbsd-compat/glob.h"
-#endif
 #ifdef HAVE_UTIL_H
 #include <util.h>
 #endif
