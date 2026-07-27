@@ -23,12 +23,10 @@
 #include "includes.h"
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_STATVFS_H
-#include <sys/statvfs.h>
-#endif
-#include "openbsd-compat/sys-queue.h"
+#include <sys/queue.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/statvfs.h>
 #include <sys/uio.h>
 
 #include <dirent.h>

@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/queue.h>
 #include <sys/stat.h>
 #ifdef __OpenBSD__
 #include <sys/sysctl.h>
@@ -45,7 +46,6 @@
 #include <util.h>
 #endif
 
-#include "openbsd-compat/sys-queue.h"
 #include "xmalloc.h"
 #include "ssh.h"
 #include "log.h"

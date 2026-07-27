@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd-session.c,v 1.19 2025/12/30 00:35:37 djm Exp $ */
+/* $OpenBSD: sshd-session.c,v 1.20 2026/02/09 21:38:14 dtucker Exp $ */
 /*
  * SSH2 implementation:
  * Privilege Separation:
@@ -31,12 +31,12 @@
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include "openbsd-compat/sys-tree.h"
-#include "openbsd-compat/sys-queue.h"
 #include <sys/wait.h>
+#include <sys/tree.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/queue.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -53,13 +53,6 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <limits.h>
-
-#ifdef WITH_OPENSSL
-#include <openssl/bn.h>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include "openbsd-compat/openssl-compat.h"
-#endif
 
 #ifdef HAVE_SECUREWARE
 #include <sys/security.h>
@@ -605,27 +598,6 @@ demote_sensitive_data(void)
 		}
 		/* Certs do not need demotion */
 	}
-}
-
-static void
-reseed_prngs(void)
-{
-	u_int32_t rnd[256];
-
-#ifdef WITH_OPENSSL
-	RAND_poll();
-#endif
-	arc4random_stir(); /* noop on recent arc4random() implementations */
-	arc4random_buf(rnd, sizeof(rnd)); /* let arc4random notice PID change */
-
-#ifdef WITH_OPENSSL
-	RAND_seed(rnd, sizeof(rnd));
-	/* give libcrypto a chance to notice the PID change */
-	if ((RAND_bytes((u_char *)rnd, 1)) != 1)
-		fatal_f("RAND_bytes failed");
-#endif
-
-	explicit_bzero(rnd, sizeof(rnd));
 }
 
 struct sshbuf *

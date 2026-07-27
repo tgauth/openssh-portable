@@ -525,6 +525,7 @@ AC_CHECK_HEADERS([ \
 # platform.  Usually these are just empty, but in some cases they'll include
 # the equivalent file.  This avoids having to wrap those includes in
 # '#ifdef HAVE_FOO_H'.  If we create any such headers, add the path to includes.
+COMPATINCLUDESDIR="openbsd-compat/include"
 COMPATINCLUDES=""
 AC_CHECK_HEADERS([ \
     endian.h \
@@ -536,12 +537,14 @@ AC_CHECK_HEADERS([ \
     poll.h \
     stdint.h \
     sys/mman.h \
+    sys/mount.h \
     sys/stat.h \
+    sys/statvfs.h \
     sys/time.h \
     sys/un.h \
     time.h \
     util.h], [], [
-	COMPATINCLUDES="openbsd-compat/include"
+	COMPATINCLUDES="$COMPATINCLUDESDIR"
 	header="$COMPATINCLUDES/$ac_header"
 	dir=`dirname "$header"`
 	mkdir -p "$dir"
@@ -552,6 +555,34 @@ AC_CHECK_HEADERS([ \
 	*)      ;;
 	esac >"$header"
 ])
+
+dnl Now create replacement headers for those that we always want to shim.
+for include in sys/queue.h sys/tree.h; do
+	COMPATINCLUDES="$COMPATINCLUDESDIR"
+	header="$COMPATINCLUDES/$include"
+	dir=`dirname "$header"`
+	mkdir -p "$dir"
+	case "$include" in
+	sys/queue.h)
+		echo '#include "openbsd-compat/sys-queue.h"'
+		;;
+	sys/tree.h)
+		echo '#include "openbsd-compat/sys-tree.h"'
+		;;
+	esac >"$header"
+done
+
+# DragonFly uses STAILQ_* in its sys/mount.h, so we explicitly
+# need to include the system one first, not our shim.
+case "$host" in
+*-*-dragonfly*)
+	COMPATINCLUDES="$COMPATINCLUDESDIR"
+	mkdir -p "$COMPATINCLUDES/sys"
+	(echo '#include "/usr/include/sys/queue.h"'
+	 echo '#include "/usr/include/sys/mount.h"') \
+	    >"$COMPATINCLUDES/sys/mount.h"
+	;;
+esac
 
 AC_CHECK_DECLS([le32toh, le64toh, htole64], [], [], [
 #ifdef HAVE_SYS_TYPES_H
@@ -744,8 +775,6 @@ case "$host" in
 	AC_DEFINE([SPT_TYPE], [SPT_REUSEARGV],
 		[Define to a Set Process Title type if your system is
 		supported by bsd-setproctitle.c])
-	AC_DEFINE([SSHPAM_CHAUTHTOK_NEEDS_RUID], [1],
-	    [AIX 5.2 and 5.3 (and presumably newer) require this])
 	AC_DEFINE([PTY_ZEROREAD], [1], [read(1) can return 0 for a non-closed fd])
 	AC_DEFINE([PLATFORM_SYS_DIR_UID], 2, [System dirs owned by bin (uid 2)])
 	AC_DEFINE([BROKEN_STRNDUP], 1, [strndup broken, see APAR IY61211])
@@ -1185,9 +1214,6 @@ if (setsockopt(s, IPPROTO_IP, IP_TOS, &one, sizeof(one)) == -1)
 	AC_DEFINE([PAM_SUN_CODEBASE])
 	AC_DEFINE([LOGIN_NEEDS_UTMPX])
 	AC_DEFINE([PAM_TTY_KLUDGE])
-	AC_DEFINE([SSHPAM_CHAUTHTOK_NEEDS_RUID], [1],
-		[Define if pam_chauthtok wants real uid set
-		to the unpriv'ed user])
 	AC_DEFINE([LOCKED_PASSWD_STRING], ["*LK*"])
 	# Pushing STREAMS modules will cause sshd to acquire a controlling tty.
 	AC_DEFINE([SSHD_ACQUIRES_CTTY], [1],

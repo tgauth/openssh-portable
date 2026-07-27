@@ -1,4 +1,4 @@
-/* $OpenBSD: gss-serv.c,v 1.36 2026/02/08 15:28:01 dtucker Exp $ */
+/* $OpenBSD: gss-serv.c,v 1.37 2026/02/11 16:57:38 dtucker Exp $ */
 
 /*
  * Copyright (c) 2001-2003 Simon Wilkinson. All rights reserved.
@@ -39,7 +39,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "openbsd-compat/sys-queue.h"
 #include "xmalloc.h"
 #include "sshkey.h"
 #include "hostfile.h"
@@ -114,7 +113,7 @@ ssh_gssapi_acquire_cred(Gssctxt *ctx)
 		}
 		gss_add_oid_set_member(&status, ctx->oid, &oidset);
 
-		if (gethostname(lname, HOST_NAME_MAX)) {
+		if (gethostname(lname, sizeof(lname))) {
 			gss_release_oid_set(&status, &oidset);
 			return (-1);
 		}
