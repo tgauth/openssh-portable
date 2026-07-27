@@ -435,6 +435,7 @@
     <ClCompile Include="$(OpenSSH-Src-Path)sshbuf-misc.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)sshbuf.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)ssherr.c" />
+    <ClCompile Include="$(OpenSSH-Src-Path)ssherr-libcrypto.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)sshkey.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)ssh_api.c" />
     <ClCompile Include="$(OpenSSH-Src-Path)umac.c" />
