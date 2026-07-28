@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect.c,v 1.380 2026/02/11 22:57:55 djm Exp $ */
+/* $OpenBSD: sshconnect.c,v 1.382 2026/02/16 00:45:41 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -17,15 +17,12 @@
 
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -53,7 +50,6 @@
 #include "hostfile.h"
 #include "ssh.h"
 #include "compat.h"
-#include "sshbuf.h"
 #include "packet.h"
 #include "sshkey.h"
 #include "sshconnect.h"
@@ -61,11 +57,8 @@
 #include "match.h"
 #include "misc.h"
 #include "readconf.h"
-#include "atomicio.h"
 #include "dns.h"
 #include "monitor_fdpass.h"
-#include "ssh2.h"
-#include "version.h"
 #include "authfile.h"
 #include "ssherr.h"
 #include "authfd.h"
