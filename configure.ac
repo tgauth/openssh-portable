@@ -542,7 +542,11 @@ AC_CHECK_HEADERS([ \
     sys/time.h \
     sys/un.h \
     time.h \
-    util.h], [], [
+    util.h \
+    ], [
+	# Remove any old shims.
+	rm -f "$COMPATINCLUDESDIR/$ac_header"
+    ], [
 	COMPATINCLUDES="$COMPATINCLUDESDIR"
 	header="$COMPATINCLUDES/$ac_header"
 	dir=`dirname "$header"`
@@ -1766,11 +1770,13 @@ dnl create a glob.h shim so we don't have to sprinkle ifdefs everywhere.
 AC_MSG_CHECKING([if we can use the system glob])
 if test "x$use_system_glob" = "xyes" ; then
 	AC_MSG_RESULT([yes])
+	# Remove any old shims.
+	rm -f "$COMPATINCLUDESDIR/glob.h"
 else
 	AC_MSG_RESULT([no])
-	COMPATINCLUDES="openbsd-compat/include"
+	COMPATINCLUDES="$COMPATINCLUDESDIR"
 	mkdir -p "$COMPATINCLUDES"
-	echo '# include "openbsd-compat/glob.h"' >$COMPATINCLUDES/glob.h
+	echo '#include "openbsd-compat/glob.h"' >$COMPATINCLUDES/glob.h
 fi
 
 AC_CHECK_DECL([VIS_ALL], ,
