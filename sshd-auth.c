@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd-auth.c,v 1.12 2026/02/11 17:05:32 dtucker Exp $ */
+/* $OpenBSD: sshd-auth.c,v 1.13 2026/03/02 02:40:15 djm Exp $ */
 /*
  * SSH2 implementation:
  * Privilege Separation:
@@ -98,6 +98,10 @@
 #include "srclimit.h"
 #include "ssh-sandbox.h"
 #include "dh.h"
+
+#ifdef WINDOWS
+#include "sshTelemetry.h"
+#endif
 
 /* Privsep fds */
 #define PRIVSEP_MONITOR_FD		(STDERR_FILENO + 1)
@@ -816,6 +820,22 @@ do_ssh2_kex(struct ssh *ssh)
 	    options.ciphers, options.macs, compression, hkalgs);
 
 	free(hkalgs);
+
+	if ((r = kex_exchange_identification(ssh, -1,
+	    options.version_addendum)) != 0)
+#ifdef WINDOWS
+	{
+		send_kex_exch_exit_code_telemetry(r);
+#endif /* WINDOWS */
+		sshpkt_fatal(ssh, r, "banner exchange");
+#ifdef WINDOWS
+	}
+	send_kex_exch_exit_code_telemetry(0);
+#endif /* WINDOWS */
+	mm_sshkey_setcompat(ssh); /* tell monitor */
+
+	if ((ssh->compat & SSH_BUG_NOREKEY))
+		debug("client does not support rekeying");
 
 	/* start key exchange */
 	if ((r = kex_setup(ssh, myproposal)) != 0)
