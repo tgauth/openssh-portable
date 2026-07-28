@@ -177,7 +177,7 @@ case "$config" in
 	;;
     boringssl)
 	CONFIGFLAGS="--disable-pkcs11"
-	LIBCRYPTOFLAGS="--with-ssl-dir=/opt/boringssl --with-rpath=-Wl,-rpath,"
+	LIBCRYPTOFLAGS="--with-ssl-dir=/opt/boringssl"
 	;;
 	aws-lc)
 	LIBCRYPTOFLAGS="--with-ssl-dir=/opt/aws-lc --with-rpath=-Wl,-rpath,"

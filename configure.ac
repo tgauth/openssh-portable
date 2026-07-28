@@ -3003,8 +3003,15 @@ nocrypto_saved_LIBS="$LIBS"
 if test "x$openssl" = "xyes" ; then
 	LIBS="-lcrypto $LIBS"
 	CHANNELLIBS="-lcrypto $CHANNELLIBS"
-	AC_TRY_LINK_FUNC([RAND_add], ,
-	    [AC_MSG_ERROR([*** working libcrypto not found, check config.log])])
+	AC_TRY_LINK_FUNC([RAND_add], , [
+	    # As of early 2026, BoringSSL libcrypto needs -lstdc++ for
+	    # destructors so try that before giving up.
+	    LIBS="$LIBS -lstdc++"
+	    CHANNELLIBS="$CHANNELLIBS -lstdc++"
+	    AC_TRY_LINK_FUNC([RAND_add], , [
+		AC_MSG_ERROR([*** working libcrypto not found, check config.log])
+	    ])
+	])
 	AC_CHECK_HEADER([openssl/opensslv.h], ,
 	    [AC_MSG_ERROR([*** OpenSSL headers missing - please install first or check config.log ***])])
 
