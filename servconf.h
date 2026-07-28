@@ -223,7 +223,7 @@ typedef struct {
 	u_int   num_permitted_listens;
 
 	char   *chroot_directory;
-	uint	num_revoked_keys_files;
+	u_int	num_revoked_keys_files;
 	char   **revoked_keys_files;
 	char   *trusted_user_ca_keys;
 	char   *authorized_keys_command;
