@@ -474,6 +474,7 @@ check_pam_user(Authctxt *authctxt)
 	if (strcmp(sshpam_initial_user, pam_user) != 0) {
 		error_f("PAM user \"%s\" does not match previous \"%s\"",
 		      pam_user, sshpam_initial_user);
+		return PAM_USER_UNKNOWN;
 	}
 	return PAM_SUCCESS;
 }
@@ -1013,6 +1014,14 @@ sshpam_free_ctx(void *ctxtp)
 	 * still on the cleanup list, so pam_end() *will* be called before
 	 * the server process terminates.
 	 */
+}
+
+int
+sshpam_priv_kbdint_authdone(void *ctxtp)
+{
+	struct pam_ctxt *ctxt = ctxtp;
+
+	return ctxt->pam_done == SshPamAuthenticated;
 }
 
 KbdintDevice sshpam_device = {
