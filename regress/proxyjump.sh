@@ -24,13 +24,25 @@ for jspec in \
 		expected="user1@jump1:2221,user2@jump2:2222" ;;
 	"ssh://user@host:2223")	expected="user@host:2223" ;;
 	esac
-	f=`${SSH} -GF /dev/null -oProxyJump="$jspec" somehost | \
-		awk '/^proxyjump /{print $2}'`
+	if [ "$os" == "windows" ]; then
+		# Windows ssh emits CRLF; strip CR before comparing
+		f=`${SSH} -GF /dev/null -oProxyJump="$jspec" somehost | \
+			awk '/^proxyjump /{print $2}' | tr -d '\r'`
+	else
+		f=`${SSH} -GF /dev/null -oProxyJump="$jspec" somehost | \
+			awk '/^proxyjump /{print $2}'`
+	fi
 	if [ "$f" != "$expected" ]; then
 		fail "ProxyJump $jspec: expected $expected, got $f"
 	fi
-	f=`${SSH} -GF /dev/null -J "$jspec" somehost | \
-		awk '/^proxyjump /{print $2}'`
+	if [ "$os" == "windows" ]; then
+		# Windows ssh emits CRLF; strip CR before comparing
+		f=`${SSH} -GF /dev/null -J "$jspec" somehost | \
+			awk '/^proxyjump /{print $2}' | tr -d '\r'`
+	else
+		f=`${SSH} -GF /dev/null -J "$jspec" somehost | \
+			awk '/^proxyjump /{print $2}'`
+	fi
 	if [ "$f" != "$expected" ]; then
 		fail "ssh -J $jspec: expected $expected, got $f"
 	fi
@@ -42,13 +54,25 @@ f=`${SSH} -GF /dev/null -oProxyJump=none -oProxyJump=jump1 somehost | \
 if [ -n "$f" ]; then
 	fail "ProxyJump=none first did not win"
 fi
-f=`${SSH} -GF /dev/null -oProxyJump=jump -oProxyCommand=foo somehost | \
-	grep "^proxyjump "`
+if [ "$os" == "windows" ]; then
+	# Windows ssh emits CRLF; strip CR before comparing
+	f=`${SSH} -GF /dev/null -oProxyJump=jump -oProxyCommand=foo somehost | \
+		grep "^proxyjump " | tr -d '\r'`
+else
+	f=`${SSH} -GF /dev/null -oProxyJump=jump -oProxyCommand=foo somehost | \
+		grep "^proxyjump "`
+fi
 if [ "$f" != "proxyjump jump" ]; then
 	fail "ProxyJump first did not win over ProxyCommand"
 fi
-f=`${SSH} -GF /dev/null -oProxyCommand=foo -oProxyJump=jump somehost | \
-	grep "^proxycommand "`
+if [ "$os" == "windows" ]; then
+	# Windows ssh emits CRLF; strip CR before comparing
+	f=`${SSH} -GF /dev/null -oProxyCommand=foo -oProxyJump=jump somehost | \
+		grep "^proxycommand " | tr -d '\r'`
+else
+	f=`${SSH} -GF /dev/null -oProxyCommand=foo -oProxyJump=jump somehost | \
+		grep "^proxycommand "`
+fi
 if [ "$f" != "proxycommand foo" ]; then
 	fail "ProxyCommand first did not win over ProxyJump"
 fi
@@ -76,7 +100,12 @@ for jspec in \
 done
 # Special characters should be accepted in the config though.
 echo "ProxyJump user;with;semicolon@host;with;semicolon" >> $OBJ/ssh_config
-f=`${SSH} -GF $OBJ/ssh_config somehost | grep "^proxyjump "`
+if [ "$os" == "windows" ]; then
+	# Windows ssh emits CRLF; strip CR before comparing
+	f=`${SSH} -GF $OBJ/ssh_config somehost | grep "^proxyjump " | tr -d '\r'`
+else
+	f=`${SSH} -GF $OBJ/ssh_config somehost | grep "^proxyjump "`
+fi
 if [ "$f" != "proxyjump user;with;semicolon@host;with;semicolon" ]; then
 	fail "ProxyJump did not allow special characters in config: $f"
 fi
@@ -96,7 +125,12 @@ sed 's/^[^ ]* /target-host /' < $OBJ/known_hosts.orig >> $OBJ/known_hosts
 start_sshd
 
 verbose "functional ProxyJump"
-res=`${REAL_SSH} -F $OBJ/ssh_config -J jump-host target-host echo "SUCCESS" 2>/dev/null`
+if [ "$os" == "windows" ]; then
+	# Windows ssh emits CRLF; strip CR before comparing
+	res=`${REAL_SSH} -F $OBJ/ssh_config -J jump-host target-host echo "SUCCESS" 2>/dev/null | tr -d '\r'`
+else
+	res=`${REAL_SSH} -F $OBJ/ssh_config -J jump-host target-host echo "SUCCESS" 2>/dev/null`
+fi
 if [ "$res" != "SUCCESS" ]; then
 	fail "functional test failed: expected SUCCESS, got $res"
 fi
