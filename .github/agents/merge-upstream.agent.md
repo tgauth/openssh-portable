@@ -43,7 +43,8 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
     - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
     - **Parameters**:
        - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
-       - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
+       - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64". **Defaults to the host machine's architecture** (auto-detected). If you pass an architecture that does not match the host, the tool throws unless `-AllowArchMismatch` is also passed. Do NOT hard-code `x64`.
+       - `AllowArchMismatch` (switch, optional): Permit building for a non-host architecture (e.g. cross-compiling x64 on an ARM64 host).
        - `Clean` (boolean, optional): Perform clean build (default: false)
     - **If tool unavailable**: ERROR - This tool is required for the merge workflow
 
@@ -51,7 +52,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
    - **Parameters**:
      - `Configuration` (string, optional): Build configuration - "Debug" or "Release" (default: "Release")
-     - `Architecture` (string, optional): Target architecture - "x64", "x86", "ARM", "ARM64" (default: "x64")
+     - `Architecture` (string, optional): Target architecture. **Defaults to the host architecture**; mismatches are blocked unless `-AllowArchMismatch` is passed. Use the same architecture you built with.
      - `SkipFirewall` (boolean, optional): Skip firewall configuration (default: false)
      - `NoCleanup` (boolean, optional): Skip cleanup for debugging (default: false)
    - **If tool unavailable**: ERROR - This tool is required for the merge workflow
@@ -84,11 +85,32 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    - **Install tool**: `.\.github\tools\Install-VcpkgDependencies.ps1` (also exposed via MCP as `mcp_openssh-server_Install_VcpkgDependencies` when registered).
      - When to use: build fails because `contrib/win32/openssh/vcpkg_installed/<triplet>-custom/` is missing (e.g., on a fresh clone or after `vcpkg.json` changes).
      - First-time setup: run with `-Bootstrap`. Multi-arch parity with CI: `-Architecture x64,x86,ARM,ARM64`.
-     - Default `-Architecture` matches `Start-OpenSSHBuild` (`x64`).
+     - Default `-Architecture` matches `Start-OpenSSHBuild` (the host architecture). Install the triplet(s) for the architecture(s) you will build.
    - **Update skill**: [.github/skills/update-vcpkg-port/SKILL.md](../skills/update-vcpkg-port/SKILL.md).
      - When to use: an upstream merge bumps a vendored dependency (libressl, libfido2, libcbor, zlib), or upstream OpenSSH starts requiring a newer minimum.
      - The skill orchestrates `Update-VcpkgPort.ps1`, walks the patch-rejection decision tree, validates with the install tool and a build, and produces a commit message.
    - **Reference**: [vcpkg.instructions.md](../instructions/vcpkg.instructions.md) for layout, custom triplets, and overlay-port rationale.
+
+7. **Get-RemainingCommitCount MCP Tool** - Merge progress tracking
+   - **MCP Tool Name**: `mcp_openssh-server_Get_RemainingCommitCount`
+   - **Parameters**: `StartRef` (required) — ref to count from; `EndRef` (optional, default `HEAD`) — end tag/commit.
+   - **When to use**: at the start of each batch (and when reporting progress) to tell the user how many upstream commits remain between the current position and the end tag/HEAD.
+
+8. **Test-MergeConflictMarkers MCP Tool** - Leftover conflict-marker guard
+   - **MCP Tool Name**: `mcp_openssh-server_Test_MergeConflictMarkers`
+   - **Parameters**: `IncludeAll` (switch) to also scan `.github/instructions|agents|prompts|skills` (excluded by default because those docs contain illustrative markers); `FailOnDivider` (switch) to also flag bare `=======`.
+   - **When to use**: after resolving each batch's conflicts and **before** committing/continuing the merge — verifies no `<<<<<<<`/`=======`/`>>>>>>>` markers or unmerged paths remain. Run again on the real branch after copying files from scratch.
+
+9. **Sync-VersionResource MCP Tool** - version.rc ↔ version.h sync
+   - **MCP Tool Name**: `mcp_openssh-server_Sync_VersionResource`
+   - **Parameters**: `DryRun` (switch) to preview.
+   - **When to use**: whenever the merge changes `version.h` (nearly every merge). After resolving `version.h`, run this to rewrite `contrib/win32/openssh/version.rc` numbers to match. See [Pattern 7 in merge-details](../instructions/merge/merge-details.instructions.md).
+
+### Conflict-resolution subagent and skills
+
+- **conflict-review agent** ([conflict-review.agent.md](./conflict-review.agent.md)) — after resolving a batch's conflicts (and running `Test-MergeConflictMarkers`), **delegate the resolved diff to this review-only subagent** for a second pass before continuing the merge. It audits for leftover markers, prefer-upstream bias, balanced Windows guards, silently auto-merged changes needing Windows follow-up, regress-test adaptation, and version sync, then returns APPROVE or CHANGES-REQUIRED. Address CHANGES-REQUIRED items before proceeding.
+- **resolve-merge-conflict skill** ([resolve-merge-conflict/SKILL.md](../skills/resolve-merge-conflict/SKILL.md)) — read when resolving conflicts; encodes the prefer-upstream-and-adapt procedure, strategy preference order, silent auto-merge hunting, regress/version sync, and how to summarize resolutions for the PR.
+- **merge-retrospective skill** ([merge-retrospective/SKILL.md](../skills/merge-retrospective/SKILL.md)) — run after the merge PR lands to feed new conflict-resolution patterns back into the instructions/skills/agents/tools.
 
 ## Workflow Phases
 
@@ -153,7 +175,7 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
 
 3. **Establish baseline warning count:**
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHBuild`
-   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
+   - **Parameters**: `Configuration="Release"` (Architecture defaults to the host; pass it explicitly only when it matches the host)
    - Parse and document the current warning count and categories
    - This baseline will be used to detect new warnings introduced during merge
    - Store baseline for comparison after each build
@@ -213,20 +235,42 @@ This agent assists with merging upstream OpenSSH commits into the PowerShell for
    This brings in all commits from the previous merge point through `EndCommitFull` in a single merge. The `--no-ff` flag ensures a merge commit is always created.
 
 4. **If conflicts occur, resolve each one directly:**
+   - Read the [resolve-merge-conflict skill](../skills/resolve-merge-conflict/SKILL.md) and follow it.
    - For each conflicted file reported in the merge result's `ConflictedFiles`:
-     a. Resolve the conflict in place following Windows preservation patterns (see [merge-details.instructions.md](../instructions/merge/merge-details.instructions.md)).
+     a. Resolve the conflict in place following the **prefer-upstream-and-adapt** principle and Windows preservation patterns (see [merge-details.instructions.md](../instructions/merge/merge-details.instructions.md)).
      b. Stage the resolved file: `Invoke-Git Operation="Add" Path="<file>"`
    - The resolved files on the scratch branch are the source of truth that will be copied to the real merge branch in Phase 6. No resolution log or rerere recording is needed.
 
-5. **Complete the merge:**
+5. **Verify no conflict markers remain, then complete the merge:**
    ```pwsh
+   # MCP Tool: mcp_openssh-server_Test_MergeConflictMarkers
+   # (must report no markers and no unmerged paths before continuing)
+
    # MCP Tool: mcp_openssh-server_Invoke_Git
    # Operation="MergeContinue"
    ```
 
+6. **Hunt for silently auto-merged changes needing Windows work:**
+   Even when there were no conflicts, upstream changes can merge cleanly yet
+   require Windows follow-up (ssh-agent, `config.h.vs`, `.vcxproj`, new POSIX
+   calls). Diff the batch range (`NameOnly=true`) and check those areas — see
+   [Pattern 6 in merge-details](../instructions/merge/merge-details.instructions.md).
+   If `version.h` changed, run `mcp_openssh-server_Sync_VersionResource` to update
+   `version.rc`.
+
+7. **Delegate the resolved batch to the conflict-review subagent:**
+   Hand the batch's resolved diff to the [conflict-review agent](./conflict-review.agent.md)
+   for a review-only second pass. Address any CHANGES-REQUIRED items it returns
+   before proceeding to the build.
+
 **Conflict Resolution Patterns:**
+- **Prefer upstream:** Take the upstream change and adapt for Windows; do not keep old fork behavior just to minimize diff.
 - **Windows-specific code:** Preserve with `#ifdef WINDOWS`
-- **Removed featureand Validation
+- **Removed/Unix-only features:** Exclude with `#ifndef WINDOWS` (wrap, never delete upstream code)
+- **Build system changes:** Update `.vcxproj` / `.sln` files (use `\r\n` line endings)
+- **Configuration:** Add new defines to `contrib/win32/openssh/config.h.vs`
+
+### Phase 3: Build and Validation
 **Objective:** Build successfully and validate if CI was successful
 
 **Build/validation gating rule:** Build and validation are only required for batches whose merged commit range touches at least one C source or header file (`*.c` or `*.h`, including under `contrib/win32/**`). For batches that only modify non-compiled files (e.g., `*.md`, `*.0`/`*.5` man pages, `regress/*.sh`, `.github/**`, `Makefile.in` text-only changes that do not affect VS projects), skip the build and validation steps and proceed directly to Phase 4 (Summary and Approval), noting in the summary that build was skipped because no compiled sources changed.
@@ -241,7 +285,7 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
 **Steps (when code impact detected):**
 1. **Build the merged code:**
    - **MCP Tool Name**: `mcp_openssh-server_Start_OpenSSHBuild`
-   - **Parameters**: `Configuration="Release"`, `Architecture="x64"`
+   - **Parameters**: `Configuration="Release"` (Architecture defaults to the host machine's architecture — do not hard-code `x64`)
 
 2. **If build fails, fix compilation errors:**
    - Document all compilation errors from build output
@@ -252,7 +296,7 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
 
 3. **Run the functionality smoke test (mandatory after every successful build):**
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
-   - **Parameters**: (use defaults for Release/x64)
+   - **Parameters**: (use defaults — Release, host architecture)
 
    This test installs service, creates test user, validates SSH connectivity.
    If tests fail, fix issues and commit fixes.
@@ -339,9 +383,21 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
    - Validate (only if build was performed and the batch ends with successful CI)
    - Summarize and get approval
 3. **Continue** until the target end commit is reached (or HEAD if no end commit was specified)
-4. **Final scratch-branch validation:**
+4. **Sync the scratch branch with its base branch (re-fetched):**
+   PRs may have merged into the base branch (e.g. `latestw_all`) since work
+   started. Bring the scratch branch up to date so the real branch (created from
+   the refreshed base in Phase 6) matches:
+   ```pwsh
+   # Re-fetch the base branch
+   # MCP Tool: mcp_openssh-server_Invoke_Git  →  Operation="Fetch", Remote="<base-remote>"
+   # Merge the refreshed base tip into the scratch branch and resolve any conflicts
+   # MCP Tool: mcp_openssh-server_Invoke_Git  →  Operation="Merge", CommitHash="<base-remote>/<base-branch>"
+   ```
+   Re-run `Test-MergeConflictMarkers`, rebuild, and re-run the smoke test if this
+   sync touched compiled sources. Record the refreshed base tip for Phase 6.
+5. **Final scratch-branch validation:**
    - **MCP Tool Name**: `mcp_openssh-server_Test_OpenSSHFunctionality`
-   - **Parameters**: (use defaults for Release/x64)
+   - **Parameters**: (use defaults — Release, host architecture)
 
 **Success Criteria:**
 - All commit batches processed on scratch branch
@@ -354,17 +410,18 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
 **Objective:** Produce clean history on the real merge branch with a single merge commit preserving all upstream SHAs. Conflict resolutions are copied wholesale from the scratch branch — no rerere replay, no resolution log.
 
 **Steps:**
-1. **Create the real merge branch** from the same starting point as the scratch branch (the commit recorded in Phase 1):
+1. **Create the real merge branch** from the refreshed base tip (recorded in Phase 5's base-sync step), so the single merge below yields a tree matching the scratch branch:
    ```pwsh
-   # First, check out the original starting commit
+   # Re-fetch the base branch if you have not just done so, then check out its tip
    # MCP Tool: mcp_openssh-server_Invoke_Git
-   # Operation="Checkout", Target="<starting_commit_recorded_in_phase_1>"
+   # Operation="Checkout", Target="<base-remote>/<base-branch>"   # e.g. upstream-pwsh/latestw_all
 
    # Then create the real merge branch from there
    # MCP Tool: mcp_openssh-server_Invoke_Git
    # Operation="CreateBranch", Branch="merge-v<VERSION>-<YYYYMMDD>"
    # Example: Branch="merge-v10.0P2-20260109"
    ```
+   > If the base branch has NOT advanced since Phase 1, this is equivalent to the original starting commit. If it HAS advanced (PRs merged in the meantime), creating from the refreshed base tip is required — the scratch branch was synced to it in Phase 5, so both branches share the same base.
 
 2. **Perform a single merge** of the final upstream target:
    ```pwsh
@@ -373,30 +430,42 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
    ```
    This creates one merge commit covering all upstream commits in the range.
 
-3. **Resolve every conflict by copying the resolved file from the scratch branch:**
-   - For each file reported in `ConflictedFiles`:
-     ```pwsh
-     # Replace the conflicted file with its already-resolved version from the scratch branch.
-     # Run this directly in a terminal (no dedicated MCP wrapper needed):
-     git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- <file>
-     ```
-   - Then stage the file: `Invoke-Git Operation="Add" Path="<file>"`
-   - This works because the scratch branch already contains the correctly resolved content for every file touched by upstream.
+3. **Resolve conflicts by copying from the scratch branch — and account for silently auto-merged files:**
 
-4. **Sanity-check** that the working tree on the real branch matches the scratch branch's tip for the merged content:
+   > ⚠️ **Do not copy only the conflicted files.** Git auto-merges files that had
+   > no textual conflict, but some of those were hand-edited on the scratch branch
+   > (build fixes, `config.h.vs`, `.vcxproj`, `win32compat`, `version.rc`,
+   > regress-test adaptations). Copying only `ConflictedFiles` silently drops those
+   > edits. Use the whole-tree copy below (recommended), or reconcile with a diff.
+
+   **Recommended — whole-tree copy** (guarantees the real branch tree matches scratch):
+   ```pwsh
+   # After `git merge` reports conflicts (do NOT abort):
+   git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- .
+   # MCP Tool: mcp_openssh-server_Invoke_Git  →  Operation="Add", Path="."
+   ```
+
+   **Alternative — per-file copy + reconciling diff** (if you want a smaller, explicit change set):
+   ```pwsh
+   # Copy each conflicted file:
+   git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- <file>
+   ```
+   Then find files that differ between the real branch and scratch (i.e. auto-merged
+   files that were edited on scratch) and copy those too:
    ```pwsh
    # MCP Tool: mcp_openssh-server_Invoke_Git
    # Operation="Diff", Range="scratch-merge-v<VERSION>-<YYYYMMDD>", NameOnly=true
    ```
-   The only differences should be the build-fix commits that will be replayed in step 6 (or none if you copy the entire tree state — see note below).
+   Copy every path this reports, then stage.
 
-   **Note:** If you prefer the simplest possible approach, you may instead copy the entire tree state from the scratch branch after the merge:
+4. **Verify the tree matches scratch and no markers remain:**
    ```pwsh
-   # After `git merge` reports conflicts (do NOT abort):
-   git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- .
-   # Then `git add -A` and continue the merge.
+   # MCP Tool: mcp_openssh-server_Invoke_Git
+   # Operation="Diff", Range="scratch-merge-v<VERSION>-<YYYYMMDD>", NameOnly=true
+   # (should be empty after the whole-tree copy)
+
+   # MCP Tool: mcp_openssh-server_Test_MergeConflictMarkers
    ```
-   This guarantees the merge commit's tree exactly matches the scratch branch's tip.
 
 5. **Complete the merge:**
    ```pwsh
@@ -413,7 +482,7 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
      ```
 
 7. **Build and validate on the real branch:**
-   - Build: `mcp_openssh-server_Start_OpenSSHBuild` (Release/x64)
+   - Build: `mcp_openssh-server_Start_OpenSSHBuild` (Release, host architecture)
    - Check warnings: `mcp_openssh-server_Test_OpenSSHBuild`
    - Validate: `mcp_openssh-server_Test_OpenSSHFunctionality`
 
@@ -438,11 +507,12 @@ If any returned path matches `*.c` or `*.h`, perform the build/validation steps 
 
 **Steps:**
 1. Review all merge commits for clarity
-2. Document major conflict resolutions
+2. Document major conflict resolutions — use the PR-summary guidance in the [resolve-merge-conflict skill](../skills/resolve-merge-conflict/SKILL.md) to structure the description
 3. Note any Windows-specific changes
-4. Push branch: `git push origin merge-v<VERSION>-<DATE>`
-5. Create PR with comprehensive description
-6. Add labels and request reviewers
+4. Normalize merged upstream `.github/workflows/*.yml` triggers to dispatch-only for this fork (keep `workflow_dispatch`, disable `push`/`pull_request`/`schedule`)
+5. Push branch: `git push origin merge-v<VERSION>-<DATE>`
+6. Create PR with comprehensive description
+7. Add labels and request reviewers
 
 **PR Description Template:**
 ```markdown
@@ -463,7 +533,7 @@ This PR merges upstream OpenSSH commits from <START> through <END>.
 - [List build system updates]
 
 ### Testing
-- [x] Builds successfully (x64)
+- [x] Builds successfully (host architecture)
 - [x] Service starts and runs
 - [x] SSH connections work
 - [x] Basic operations verified
@@ -476,6 +546,15 @@ This PR merges upstream OpenSSH commits from <START> through <END>.
 - PR created with complete description
 - All CI checks passing
 - Reviewers assigned
+
+### Phase 8: Post-Merge Retrospective (after the PR lands)
+**Objective:** Capture new conflict-resolution patterns and improve the tooling.
+
+Once the merge PR is **merged**, run the [merge-retrospective skill](../skills/merge-retrospective/SKILL.md).
+It reviews the conflicts and Windows follow-ups from this merge and feeds any new
+or recurring patterns back into the merge instructions, skills, the conflict-review
+agent's checklist, and the tools — so the next merge is smoother. This step is
+run separately from the merge itself and can be triggered by the user after merge.
 
 ## Decision Points
 
@@ -543,7 +622,7 @@ git log --oneline -5  # Verify last successful state
 ```
 
 ### Build Failure Recovery
-1. Check build log: `contrib\win32\openssh\OpenSSHReleasex64.log`
+1. Check build log: `contrib\win32\openssh\OpenSSHRelease<arch>.log` (e.g. `OpenSSHReleasearm64.log` on an ARM64 host)
 2. Search for "error C" or "error LNK"
 3. Fix errors in order (compilation before linking)
 4. Commit fixes separately for clarity

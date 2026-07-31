@@ -106,6 +106,29 @@ FUNCTION resolve_conflict(file_path, conflict_content):
 
 ## Conflict Resolution Strategies
 
+### Guiding Principle: Prefer Upstream, Adapt for Windows
+
+Before choosing a strategy below, apply this bias: **take the upstream change and
+add Windows adjustments around it — do not keep the fork's old behavior just
+because it was there.** Upstream owns the protocol/logic direction; the fork's
+job is to make that direction work on Windows (preferably via the `win32compat`
+layer, and via `#ifdef WINDOWS` only where unavoidable).
+
+The common mistake is **dragging upstream's relocated logic back to where the
+fork used to have it** to minimize diff. Do not do this. Follow upstream's new
+structure and add the Windows handling in the new location.
+
+> **Real example (OpenSSH 10.3 split-sshd):** upstream moved pre-auth / KEX and
+> banner-exchange work between `sshd-session` and `sshd-auth`. The correct
+> resolution follows upstream and performs the Windows-specific handling in
+> `sshd-auth` where upstream placed it — **not** forcing that work to remain in
+> `sshd-session` for Windows. Keeping it in the old location to reduce change
+> caused state/message-ordering bugs (banner/KEX/post-auth failures). See
+> [Pattern 4](#pattern-4-openssh-103-split-sshd-state-ordering-windows).
+
+Only deviate from "prefer upstream" when the upstream code genuinely does not
+apply to Windows (then use `#ifndef WINDOWS`, wrapping — never deleting).
+
 ### 1. Taking Upstream Changes
 **When to use:** Security fixes, bug fixes, feature improvements that don't conflict with Windows functionality.
 
@@ -278,6 +301,85 @@ case in `regress/cfgparse.sh`. The surrounding `listenaddress` tests already had
 `diff --strip-trailing-cr` Windows blocks, but the new case used a plain `diff`
 and failed on Windows until it was wrapped in the same conditional.
 
+**When a bash regression test fails, check whether it is a *newly added* upstream
+test first.** A failure in a test that upstream added or substantially changed in
+this merge is a strong signal that the test needs Windows adaptation before it is
+expected to pass — not that the merge broke existing behavior. Triage:
+
+```pseudocode
+FUNCTION triage_failing_bash_test(test_file, batch_range):
+    // Was this test (or the failing case) introduced/changed by the upstream batch?
+    added_or_changed = git_diff(batch_range, test_file).touches_failing_case()
+    IF added_or_changed:
+        // Likely needs Windows adaptation, not a real regression.
+        // Apply Pattern 5 adaptations: diff --strip-trailing-cr, path/perm/signal fixes,
+        // or skip the case on Windows if the feature is Unix-only.
+        adapt_for_windows(test_file)
+    ELSE:
+        // Pre-existing test now failing => investigate as a genuine regression from the merge.
+        investigate_regression(test_file)
+```
+
+Run a single failing bash test in isolation with
+`mcp_openssh-server_Invoke_OpenSSHTests` (`TestSuite="Bash"`,
+`BashTestFilePath="<absolute-path>"`) while iterating on the adaptation.
+
+### Pattern 6: Upstream Changes That Merge Cleanly but Need Windows Follow-up
+
+Git only flags **textual** conflicts. Many upstream changes merge cleanly yet
+still require Windows work that git cannot know about. These are the most
+dangerous because nothing stops the merge — the gap surfaces later as a build
+break or runtime bug. **After every batch, diff the range and actively hunt for
+these**, even when there were zero conflicts:
+
+```pwsh
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Diff", Range="<prev_batch_end>..<cur_batch_end>", NameOnly=true
+```
+
+Classes to check:
+
+- **ssh-agent:** the Windows ssh-agent is a **separate implementation** under
+  `contrib/win32/win32compat/ssh-agent/`. Upstream changes to `ssh-agent.c` or
+  the agent protocol merge into the upstream file but are **not** reflected in
+  the Windows agent. Port relevant logic by hand, or record an explicit TODO for
+  Windows-team review. (See [repository-overview.instructions.md](../repository-overview.instructions.md).)
+- **config.h.vs:** new feature `#define`s that autoconf would set in `config.h`
+  must be added to `contrib/win32/openssh/config.h.vs` for Windows to get them.
+- **Build system:** new source files added to `Makefile.in` must be added to the
+  correct `.vcxproj` (and the solution) using `\r\n` line endings; removed files
+  must be dropped.
+- **New POSIX usage:** newly introduced `fork`/`exec`/`signal`/`pipe`/socket
+  options need a `w32_*` equivalent in `win32compat` or a guard.
+
+The `conflict-review` agent's checklist covers this class explicitly — delegate a
+batch to it for a second pass if unsure.
+
+### Pattern 7: version.h Resolution and version.rc Sync (Windows)
+
+`version.h` conflicts most upstream merges because upstream bumps the OpenBSD
+version tag and `SSH_PORTABLE`. Resolution rule:
+
+- **Keep** the Windows-only fields the fork owns: `SSH_WINDOWS_VERSION`
+  (`OpenSSH_for_Windows_<major>.<minor>`) and `SSH_WINDOWS_BANNER`.
+- **Take upstream** for the OpenBSD `$OpenBSD$` version comment and the value of
+  `SSH_PORTABLE` (`"pN"`), then update `SSH_WINDOWS_VERSION`'s `<major>.<minor>`
+  to match the new upstream release.
+
+Then sync the Windows resource file so built binaries report the right version:
+
+```pwsh
+# MCP Tool: mcp_openssh-server_Sync_VersionResource
+# (add -DryRun to preview)
+```
+
+The tool reads `version.h` and rewrites `contrib/win32/openssh/version.rc`:
+`FILEVERSION`/`PRODUCTVERSION` become `<major>,<minor>,0,0` and the
+`FileVersion` string `<major>.<minor>.0.0`; the patch (`pN`) is reflected in the
+`ProductVersion` **text** only (`OpenSSH_<major>.<minor>pN for Windows`); the
+descriptive text (`OpenSSH for Windows`) is preserved. The numeric third field
+stays `0` by fork convention.
+
 ## Common Conflict Patterns
 
 ### File System Operations
@@ -308,6 +410,22 @@ and failed on Windows until it was wrapped in the same conditional.
   existing Windows blocks are untouched. See [Pattern 5](#pattern-5-upstream-changes-to-regress-tests-with-existing-windows-adaptations).
 - **New `diff` comparisons** → Wrap with `diff --strip-trailing-cr` on Windows
   to tolerate CRLF output from Windows binaries.
+- **A bash test fails after the merge** → First check whether it is a *newly
+  added* or newly changed upstream test in this batch. If so, it likely needs
+  Windows adaptation (Pattern 5) before it is expected to pass — treat it as an
+  adaptation task, not a regression. Only if the failing test pre-existed the
+  merge should you investigate it as a genuine regression.
+
+### Silent (Clean-Merged) Changes Needing Windows Work
+- After every batch, `Diff` the range (`NameOnly=true`) even when there were no
+  conflicts, and check ssh-agent (`win32compat/ssh-agent/`), `config.h.vs`,
+  `.vcxproj`/solution, and new POSIX calls. See
+  [Pattern 6](#pattern-6-upstream-changes-that-merge-cleanly-but-need-windows-follow-up).
+
+### version.h / version.rc
+- Keep Windows fields in `version.h`; take upstream's portable version; then run
+  `mcp_openssh-server_Sync_VersionResource`. See
+  [Pattern 7](#pattern-7-versionh-resolution-and-versionrc-sync-windows).
 
 ## Resolution Workflow
 

@@ -24,7 +24,12 @@
     Build configuration. Valid values: 'Debug', 'Release'. Default: 'Release'.
 
 .PARAMETER Architecture
-    Target architecture. Valid values: 'x64', 'x86', 'ARM', 'ARM64'. Default: 'x64'.
+    Target architecture. Valid values: 'x64', 'x86', 'ARM', 'ARM64'. Default: the host
+    machine's architecture (auto-detected). A mismatched explicit value is rejected unless
+    -AllowArchMismatch is specified.
+
+.PARAMETER AllowArchMismatch
+    Permit targeting an architecture that differs from the host machine's architecture.
 
 .PARAMETER TestSuite
     Which test suites to run. Valid values: 'All', 'Unit', 'Bash', 'E2E'.
@@ -82,7 +87,10 @@ param(
 
     [Parameter()]
     [ValidateSet('x64', 'x86', 'ARM', 'ARM64')]
-    [string]$Architecture = 'x64',
+    [string]$Architecture,
+
+    [Parameter()]
+    [switch]$AllowArchMismatch,
 
     [Parameter()]
     [ValidateSet('All', 'Unit', 'Bash', 'E2E')]
@@ -100,6 +108,28 @@ param(
     [Parameter()]
     [switch]$SkipSetup
 )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Resolve target architecture (default = host arch; forbid mismatch unless overridden)
+# ──────────────────────────────────────────────────────────────────────────────
+function Get-HostArchitecture {
+    $archEnv = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrEmpty($archEnv)) { $archEnv = $env:PROCESSOR_ARCHITECTURE }
+    switch (($archEnv | ForEach-Object { $_.ToUpperInvariant() })) {
+        'AMD64' { 'x64' }
+        'X86'   { 'x86' }
+        'ARM64' { 'ARM64' }
+        'ARM'   { 'ARM' }
+        default { 'x64' }
+    }
+}
+
+$hostArch = Get-HostArchitecture
+if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEmpty($Architecture)) {
+    $Architecture = $hostArch
+} elseif ($Architecture -ne $hostArch -and -not $AllowArchMismatch) {
+    throw "Requested architecture '$Architecture' does not match the host architecture '$hostArch'. Tests must run against host-native binaries; re-run with -AllowArchMismatch only if the target binaries can execute here."
+}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Resolve paths

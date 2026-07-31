@@ -120,9 +120,12 @@ quick map:
 |---|---|---|
 | `mcp_openssh-server_Test_MergePrerequisites` | [Test-MergePrerequisites.ps1](./tools/Test-MergePrerequisites.ps1) | Verify environment + remotes are ready for a merge. |
 | `mcp_openssh-server_Get_CommitGroups` | [Get-CommitGroups.ps1](./tools/Get-CommitGroups.ps1) | Group upstream commits into mergeable batches by CI presence/success. |
+| `mcp_openssh-server_Get_RemainingCommitCount` | [Get-RemainingCommitCount.ps1](./tools/Get-RemainingCommitCount.ps1) | Count commits remaining between a start ref and the end tag/HEAD (merge progress). |
 | `mcp_openssh-server_Invoke_Git` | [Invoke-Git.ps1](./tools/Invoke-Git.ps1) | Structured wrapper around git operations (Status, Merge, Diff, Checkout, …). |
 | `mcp_openssh-server_Get_ConflictContext` | [Get-ConflictContext.ps1](./tools/Get-ConflictContext.ps1) | Three-way diff context for high-complexity merge conflicts. |
-| `mcp_openssh-server_Start_OpenSSHBuild` | [Start-OpenSSHBuild.ps1](./tools/Start-OpenSSHBuild.ps1) | Build the Win32-OpenSSH solution. |
+| `mcp_openssh-server_Test_MergeConflictMarkers` | [Test-MergeConflictMarkers.ps1](./tools/Test-MergeConflictMarkers.ps1) | Scan the working tree for leftover conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) and unmerged paths. |
+| `mcp_openssh-server_Sync_VersionResource` | [Sync-VersionResource.ps1](./tools/Sync-VersionResource.ps1) | Sync `contrib/win32/openssh/version.rc` numbers to `version.h` after a version bump. |
+| `mcp_openssh-server_Start_OpenSSHBuild` | [Start-OpenSSHBuild.ps1](./tools/Start-OpenSSHBuild.ps1) | Build the Win32-OpenSSH solution. Defaults to the host architecture. |
 | `mcp_openssh-server_Test_OpenSSHBuild` | [Test-OpenSSHBuild.ps1](./tools/Test-OpenSSHBuild.ps1) | Parse the most recent build log for errors and warnings. |
 | `mcp_openssh-server_Test_OpenSSHFunctionality` | [Test-OpenSSHFunctionality.ps1](./tools/Test-OpenSSHFunctionality.ps1) | End-to-end smoke test (install service, connect, cleanup). |
 | `mcp_openssh-server_Invoke_OpenSSHTests` | [Invoke-OpenSSHTests.ps1](./tools/Invoke-OpenSSHTests.ps1) | Full CI suite (unit + bash + Pester E2E). |
@@ -163,6 +166,12 @@ tuned to a workflow.
   the upstream merge workflow end-to-end (analysis → batch merges →
   build → test → PR prep). Switch to it from the Copilot Chat agent
   picker.
+- [conflict-review.agent.md](./agents/conflict-review.agent.md) —
+  review-only subagent the merge agent delegates to after resolving a
+  batch's conflicts. Audits resolutions for leftover markers, prefer-
+  upstream bias, balanced Windows guards, silently auto-merged changes
+  needing Windows follow-up, and version sync; returns APPROVE or
+  CHANGES-REQUIRED.
 
 ### Prompts ([`prompts/`](./prompts/))
 
@@ -180,6 +189,14 @@ Self-contained workflow skills the agent reads on demand.
   vendored vcpkg dependency (LibreSSL, libfido2, libcbor, zlib) with
   all the side effects (overlay portfile SHA512, LibreSSL resource
   patch) handled correctly.
+- [resolve-merge-conflict](./skills/resolve-merge-conflict/SKILL.md) —
+  conflict-resolution procedure for upstream merges (prefer-upstream +
+  adapt for Windows, strategy preference order, silent auto-merge
+  hunting, regress-test and version-resource sync) plus how to summarize
+  the resolutions for the pull request.
+- [merge-retrospective](./skills/merge-retrospective/SKILL.md) — run
+  after a merge PR lands to capture new conflict-resolution patterns and
+  feed lessons back into the instructions, skills, agents, and tools.
 
 ---
 

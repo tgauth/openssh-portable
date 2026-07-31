@@ -21,7 +21,11 @@
 
 .PARAMETER Architecture
     Target architecture. Valid values: 'x64', 'x86', 'ARM', 'ARM64'
-    Default: 'x64'
+    Default: the host machine's architecture (auto-detected). A mismatched explicit value is
+    rejected unless -AllowArchMismatch is specified (functionality tests run host-native binaries).
+
+.PARAMETER AllowArchMismatch
+    Permit targeting an architecture that differs from the host machine's architecture.
 
 .PARAMETER SkipFirewall
     Skip Windows Firewall configuration. Use this if firewall rules already exist
@@ -56,7 +60,10 @@ param(
 
     [Parameter()]
     [ValidateSet('x64', 'x86', 'ARM', 'ARM64')]
-    [string]$Architecture = 'x64',
+    [string]$Architecture,
+
+    [Parameter()]
+    [switch]$AllowArchMismatch,
 
     [Parameter()]
     [switch]$SkipFirewall,
@@ -64,6 +71,26 @@ param(
     [Parameter()]
     [switch]$NoCleanup
 )
+
+# ── Resolve target architecture (default = host arch; forbid mismatch unless overridden) ──
+function Get-HostArchitecture {
+    $archEnv = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrEmpty($archEnv)) { $archEnv = $env:PROCESSOR_ARCHITECTURE }
+    switch (($archEnv | ForEach-Object { $_.ToUpperInvariant() })) {
+        'AMD64' { 'x64' }
+        'X86'   { 'x86' }
+        'ARM64' { 'ARM64' }
+        'ARM'   { 'ARM' }
+        default { 'x64' }
+    }
+}
+
+$hostArch = Get-HostArchitecture
+if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEmpty($Architecture)) {
+    $Architecture = $hostArch
+} elseif ($Architecture -ne $hostArch -and -not $AllowArchMismatch) {
+    throw "Requested architecture '$Architecture' does not match the host architecture '$hostArch'. Functionality tests must run against host-native binaries; re-run with -AllowArchMismatch only if you know the target binaries can execute here."
+}
 
 # Helper function to generate a random password
 function New-RandomPassword {

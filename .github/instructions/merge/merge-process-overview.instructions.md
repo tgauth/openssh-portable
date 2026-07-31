@@ -237,14 +237,40 @@ The process consists of several interconnected phases:
     - Summarize batch changes, conflicts resolved, build status, and smoke-test status (and full CI suite status if it was run)
     - Wait for user approval before proceeding to next batch
     - Document next steps (starting commit for next batch)
-    - After all batches complete on the scratch branch, proceed to the Real Branch Phase
+    - After all batches complete on the scratch branch, proceed to the scratch base-sync step below
+
+**Before the Real Branch Phase — sync the scratch branch with its base branch (re-fetched):**
+
+Merge work can take long enough that other PRs land on the base branch (e.g.
+`latestw_all`) while it is in progress. Because the real merge branch's tree is
+taken wholesale from the scratch branch, the scratch branch must be current with
+the base branch **before** it becomes the source of truth. Do this once, after
+all batches are merged and validated on the scratch branch:
+
+```pwsh
+# 1. Re-fetch the base branch the scratch/merge was started from (its upstream tracking branch)
+git fetch <base-remote>            # e.g. origin or upstream-pwsh
+
+# 2. Merge the refreshed base into the scratch branch (still checked out)
+# MCP Tool: mcp_openssh-server_Invoke_Git
+# Operation="Merge", CommitHash="<base-remote>/<base-branch>"   # e.g. origin/latestw_all
+```
+
+- Resolve any conflicts from this merge the same way as batch conflicts.
+- After it completes cleanly, verify no markers remain
+  (`mcp_openssh-server_Test_MergeConflictMarkers`) and re-run the build +
+  `Test-OpenSSHFunctionality` smoke test so the scratch tip is known-good.
+- In the Real Branch Phase, create the real branch from **this same re-fetched
+  base branch tip** (not the stale original starting commit), so the real
+  branch already contains the newly landed base commits and its post-merge tree
+  can match the synced scratch tip.
 
 ### Real Branch Phase
-12. **Create the real merge branch from the original starting commit** (recorded in step 3 of Initial Preparation):
+12. **Create the real merge branch from the re-fetched base branch tip** (see the scratch base-sync step above; this is the updated base, e.g. `origin/latestw_all`, which coincides with the original starting commit only if no PRs landed since):
     ```pwsh
-    # Check out the original starting commit
+    # Check out the re-fetched base branch tip (updated base)
     # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Checkout", Target="<starting_commit>"
+    # Operation="Checkout", Target="<base-remote>/<base-branch>"   # e.g. origin/latestw_all
 
     # Create the real merge branch from there
     # MCP Tool: mcp_openssh-server_Invoke_Git
@@ -268,12 +294,38 @@ The process consists of several interconnected phases:
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Add", Path="<conflicted_file>"
     ```
-    **Simplest variant:** copy every file the merge touched (resolved + non-resolved) from the scratch branch in one command, guaranteeing the merge commit's tree exactly matches the scratch branch's tip:
+
+    > **⚠️ Copying only the conflicted files is not sufficient.** Many fixes on
+    > the scratch branch were made to files that **auto-merged without conflict**
+    > — build fixes, `config.h.vs` defines, `.vcxproj` edits, `win32compat`
+    > shims, regress-test adaptations, `version.rc`. Those files do **not**
+    > appear in `ConflictedFiles` on the real branch, so a per-file copy of only
+    > the conflicted set silently drops them. You **must** reconcile the full
+    > tree against the scratch tip.
+
+    **Recommended (whole-tree copy)** — guarantees the real branch's tree exactly
+    matches the validated scratch tip in one shot:
     ```pwsh
     # After the merge reports conflicts (do NOT abort):
     git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- .
     git add -A
     ```
+
+    **If you instead copied files individually, run a reconciling diff** and copy
+    over anything that still differs from the scratch tip:
+    ```pwsh
+    # List every path where the real branch differs from the scratch tip.
+    # This surfaces the auto-merged-but-edited files a conflict-only copy missed.
+    # MCP Tool: mcp_openssh-server_Invoke_Git
+    # Operation="Diff", Range="scratch-merge-v<VERSION>-<YYYYMMDD>", NameOnly=true
+    #
+    # For each unexpected path, copy it from scratch and stage it:
+    #   git checkout scratch-merge-v<VERSION>-<YYYYMMDD> -- <path>
+    ```
+    The only differences that should remain after reconciling are the build-fix
+    commits you intend to replay separately in step 15. Before completing the
+    merge, run `mcp_openssh-server_Test_MergeConflictMarkers` to confirm no
+    markers survived the copy.
 
 15. **Complete the merge and apply build fixes:**
     ```pwsh
