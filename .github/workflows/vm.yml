@@ -467,5 +467,5 @@ jobs:
       shell: solaris {0}
       run: |
         cd $GITHUB_WORKSPACE
-        sudo -u builder make tests
+        sudo -u builder env SSHD_CONFOPTS="UsePam yes" make tests
 
