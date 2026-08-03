@@ -21,7 +21,11 @@
 
 .PARAMETER Architecture
     Target architecture. Valid values: 'x64', 'x86', 'ARM', 'ARM64'
-    Default: 'x64'
+    Default: the host machine's architecture (auto-detected). A mismatched explicit value is
+    rejected unless -AllowArchMismatch is specified (functionality tests run host-native binaries).
+
+.PARAMETER AllowArchMismatch
+    Permit targeting an architecture that differs from the host machine's architecture.
 
 .PARAMETER SkipFirewall
     Skip Windows Firewall configuration. Use this if firewall rules already exist
@@ -56,7 +60,10 @@ param(
 
     [Parameter()]
     [ValidateSet('x64', 'x86', 'ARM', 'ARM64')]
-    [string]$Architecture = 'x64',
+    [string]$Architecture,
+
+    [Parameter()]
+    [switch]$AllowArchMismatch,
 
     [Parameter()]
     [switch]$SkipFirewall,
@@ -64,6 +71,26 @@ param(
     [Parameter()]
     [switch]$NoCleanup
 )
+
+# ── Resolve target architecture (default = host arch; forbid mismatch unless overridden) ──
+function Get-HostArchitecture {
+    $archEnv = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrEmpty($archEnv)) { $archEnv = $env:PROCESSOR_ARCHITECTURE }
+    switch (($archEnv | ForEach-Object { $_.ToUpperInvariant() })) {
+        'AMD64' { 'x64' }
+        'X86'   { 'x86' }
+        'ARM64' { 'ARM64' }
+        'ARM'   { 'ARM' }
+        default { 'x64' }
+    }
+}
+
+$hostArch = Get-HostArchitecture
+if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEmpty($Architecture)) {
+    $Architecture = $hostArch
+} elseif ($Architecture -ne $hostArch -and -not $AllowArchMismatch) {
+    throw "Requested architecture '$Architecture' does not match the host architecture '$hostArch'. Functionality tests must run against host-native binaries; re-run with -AllowArchMismatch only if you know the target binaries can execute here."
+}
 
 # Helper function to generate a random password
 function New-RandomPassword {
@@ -113,6 +140,7 @@ $result = [PSCustomObject]@{
 
 # Variables for cleanup tracking
 $testUser = $null
+$testUserSid = $null
 $serviceWasInstalled = $false
 $firewallRuleCreated = $false
 
@@ -168,8 +196,11 @@ try {
 
     try {
         Import-Module Microsoft.PowerShell.LocalAccounts -UseWindowsPowerShell
-        New-LocalUser -Name $testUsername -Password $securePassword -Description "Temporary user for OpenSSH testing" -ErrorAction Stop | Out-Null
+        $newUser = New-LocalUser -Name $testUsername -Password $securePassword -Description "Temporary user for OpenSSH testing" -ErrorAction Stop
         $testUser = $testUsername
+        # Capture the SID now so the user's profile folder can be reliably removed
+        # during cleanup, even after the local account itself has been deleted.
+        $testUserSid = $newUser.SID.Value
         $result.TestUser = $testUsername
         $env:ASKPASS_PASSWORD = $testPassword
         $env:SSH_ASKPASS_REQUIRE = "force"
@@ -364,6 +395,7 @@ finally {
         Write-Host "⚠ NoCleanup specified - leaving resources in place for investigation." -ForegroundColor Yellow
         if ($testUser) {
             Write-Host "  Test user: $testUser" -ForegroundColor Yellow
+            Write-Host "  Test user profile folder: $(Join-Path $env:SystemDrive "Users\$testUser") (if a login occurred)" -ForegroundColor Yellow
         }
         if ($serviceWasInstalled) {
             Write-Host "  SSH service may still be installed/running (sshd)." -ForegroundColor Yellow
@@ -423,6 +455,49 @@ finally {
             catch {
                 Write-Host "⚠ Warning: Failed to remove test user: $_" -ForegroundColor Yellow
                 Write-Host "  You may need to manually remove user: $testUser" -ForegroundColor Yellow
+            }
+
+            # Remove the user's profile folder (e.g. C:\Users\openssh_test_1234).
+            # Windows creates this directory the first time the account logs in (via SSH),
+            # and Remove-LocalUser does NOT delete it. Use the Win32_UserProfile CIM class
+            # so the registry profile entry and the on-disk folder are both cleaned up.
+            Write-Host "Removing test user profile..." -ForegroundColor Gray
+            try {
+                $userProfile = $null
+                if ($testUserSid) {
+                    $userProfile = Get-CimInstance -ClassName Win32_UserProfile -Filter "SID='$testUserSid'" -ErrorAction SilentlyContinue
+                }
+                if (-not $userProfile) {
+                    # Fall back to matching by the profile's on-disk path.
+                    $userProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LocalPath -and ($_.LocalPath.Split('\')[-1] -eq $testUser) }
+                }
+
+                if ($userProfile) {
+                    $profilePath = $userProfile.LocalPath
+                    $userProfile | Remove-CimInstance -ErrorAction Stop
+                    # Remove-CimInstance deletes the profile registration; ensure the
+                    # folder itself is gone in case any files were left behind.
+                    if ($profilePath -and (Test-Path $profilePath)) {
+                        Remove-Item -Path $profilePath -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                    Write-Host "✓ Test user profile removed" -ForegroundColor Green
+                }
+                else {
+                    # No profile was ever created (e.g. SSH login never completed).
+                    $fallbackPath = Join-Path $env:SystemDrive "Users\$testUser"
+                    if (Test-Path $fallbackPath) {
+                        Remove-Item -Path $fallbackPath -Recurse -Force -ErrorAction Stop
+                        Write-Host "✓ Test user profile folder removed" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "  No profile folder found for $testUser" -ForegroundColor Gray
+                    }
+                }
+            }
+            catch {
+                Write-Host "⚠ Warning: Failed to remove test user profile: $_" -ForegroundColor Yellow
+                Write-Host "  You may need to manually remove folder: $(Join-Path $env:SystemDrive "Users\$testUser")" -ForegroundColor Yellow
             }
         }
 

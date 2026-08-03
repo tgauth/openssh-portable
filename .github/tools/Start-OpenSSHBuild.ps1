@@ -16,7 +16,14 @@
 
 .PARAMETER Architecture
     Target architecture for the build. Valid values: 'x64', 'x86', 'ARM', 'ARM64'
-    Default: 'x64'
+    Default: the host machine's architecture (auto-detected). If you explicitly pass an
+    architecture that does not match the host, the build is refused unless -AllowArchMismatch
+    is also specified.
+
+.PARAMETER AllowArchMismatch
+    Permit building for an architecture that differs from the host machine's architecture
+    (e.g. cross-building ARM64 on an x64 host). Without this switch, a mismatched -Architecture
+    is rejected so you don't accidentally produce binaries you can't run or test locally.
 
 .PARAMETER Clean
     When specified, performs a clean build by deleting existing build artifacts first.
@@ -67,7 +74,10 @@ param(
 
     [Parameter(Mandatory=$false)]
     [ValidateSet('x64', 'x86', 'ARM', 'ARM64')]
-    [string]$Architecture = 'x64',
+    [string]$Architecture,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$AllowArchMismatch,
 
     [Parameter(Mandatory=$false)]
     [switch]$Clean,
@@ -78,6 +88,27 @@ param(
     [Parameter(Mandatory=$false)]
     [switch]$OneCore
 )
+
+# ── Resolve target architecture (default = host arch; forbid mismatch unless overridden) ──
+function Get-HostArchitecture {
+    $archEnv = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrEmpty($archEnv)) { $archEnv = $env:PROCESSOR_ARCHITECTURE }
+    switch (($archEnv | ForEach-Object { $_.ToUpperInvariant() })) {
+        'AMD64' { 'x64' }
+        'X86'   { 'x86' }
+        'ARM64' { 'ARM64' }
+        'ARM'   { 'ARM' }
+        default { 'x64' }
+    }
+}
+
+$hostArch = Get-HostArchitecture
+if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEmpty($Architecture)) {
+    $Architecture = $hostArch
+    Write-Host "Architecture not specified; defaulting to host architecture: $Architecture" -ForegroundColor Gray
+} elseif ($Architecture -ne $hostArch -and -not $AllowArchMismatch) {
+    throw "Requested architecture '$Architecture' does not match the host architecture '$hostArch'. Re-run with -AllowArchMismatch to build for a different architecture on purpose."
+}
 
 # Determine repository root (go up from .github\tools to repo root)
 $scriptRoot = $PSScriptRoot

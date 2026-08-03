@@ -170,11 +170,6 @@
     # Operation="MergeAbort"
 
 .EXAMPLE
-    # Enable rerere for merge resolution recording
-    # MCP Tool: mcp_openssh-server_Invoke_Git
-    # Operation="Config", Key="rerere.enabled", Value="true"
-
-.EXAMPLE
     # Remove untracked files (recovery)
     # MCP Tool: mcp_openssh-server_Invoke_Git
     # Operation="Clean"

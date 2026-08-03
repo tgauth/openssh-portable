@@ -24,6 +24,20 @@ Get-ChildItem "C:\Program Files*\Windows Kits\10\bin" -Directory
 git --version
 ```
 
+### vcpkg Dependencies
+The build links against vendored libraries (`libressl`, `libfido2`, `libcbor`,
+`zlib`) installed via vcpkg. The build will **fail** if
+`contrib/win32/openssh/vcpkg_installed/<triplet>-custom/` is missing.
+
+To install (or refresh) dependencies:
+```pwsh
+.\.github\tools\Install-VcpkgDependencies.ps1 -Bootstrap
+```
+
+See [setup.instructions.md](./setup.instructions.md) Step 6 for first-time
+setup and [vcpkg.instructions.md](./vcpkg.instructions.md) for the full
+reference (overlay ports, custom triplets, version-bump workflow).
+
 ## Build Process
 
 ### Using MCP Build Tools (Recommended)

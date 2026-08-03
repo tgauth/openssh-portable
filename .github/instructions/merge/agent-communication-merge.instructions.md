@@ -309,25 +309,21 @@ Summary:
 - Processed [N] batches on scratch branch
 - Resolved [X] total conflicts across [Y] files
 - All [N] batches built successfully
-- Resolution log saved with [X] entries
 
 Switching to the real merge branch for the single final merge.
-Recorded resolutions will be replayed automatically via git rerere and the resolution log.
+Conflicts on the real branch will be resolved by copying the already-resolved
+files from the scratch branch (`git checkout scratch-branch -- <file>`).
 ```
 
-### Real Branch Replay Report:
+### Real Branch Resolution Report:
 ```
-Single merge completed on real branch. Resolution replay results:
+Single merge completed on real branch. Conflict resolution results:
 
-- Auto-resolved by git rerere: [X] files
-- Replayed from resolution log: [Y] files
-- Unmatched (manual resolution needed): [Z] files
+- Files copied from scratch branch: [X]
+- Files needing additional review: [Y]
   - [file1]: [brief reason]
-  - [file2]: [brief reason]
-- Failed replays: [W] files
 
-[If unmatched > 0]: Resolving the remaining [Z] files using strategies from the scratch phase...
-[If all resolved]: All conflicts resolved. Applying build fixes as separate commits.
+[If all resolved]: All conflicts resolved by copy-from-scratch. Applying build fixes as separate commits.
 ```
 
 ## Special Scenarios

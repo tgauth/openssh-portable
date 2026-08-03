@@ -1,0 +1,14 @@
+{
+    "servers": {
+        "openssh-server": {
+            "type": "stdio",
+            "command": "pwsh",
+            "args": [
+                "-noprofile",
+                "-c",
+                "MCPServerPS\\Start-MyMCP -ScriptRoot ./.github/tools"
+            ]
+        }
+    },
+    "inputs": []
+}
