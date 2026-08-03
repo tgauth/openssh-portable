@@ -80,6 +80,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
+          - "12.4"
           - "13.5"
           - "14.4"
           - "15.0"
@@ -96,7 +97,16 @@ jobs:
         release: ${{ matrix.target }}
         usesh: true
         prepare: |
-          pkg install -y sudo
+          case $(uname -r) in
+          12.*)
+            ftp ftp://ftp.sudo.ws/pub/sudo/sudo-1.8.32.tar.gz
+            tar xfz sudo-1.8.32.tar.gz
+            (cd sudo-1.8.32 && ./configure --sysconfdir=/usr/local/etc && make && make install)
+            ;;
+          *)
+            pkg install -y sudo
+            ;;
+          esac
           openssl rand -base64 9 >$GITHUB_WORKSPACE/regress/password
           pw useradd builder -m -h0 <$GITHUB_WORKSPACE/regress/password
           chown builder $GITHUB_WORKSPACE/regress/password
@@ -228,8 +238,8 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - "r151054"
-          - "r151046"
+          - "r151056-build"
+          - "r151058-build"
         config: [default]
     runs-on: ubuntu-latest
     steps:
@@ -244,8 +254,10 @@ jobs:
         usesh: true
         prepare: |
           set -x
-          pfexec pkg refresh
-          pfexec pkg install build-essential
+          if [ ! -x $(which gcc 2>/dev/null) ]; then
+            pfexec pkg refresh
+            pfexec pkg install build-essential
+          fi
           useradd -m builder
           sed -e "s/^root.*ALL$/root ALL=(ALL) NOPASSWD: ALL/" /etc/sudoers >>/tmp/sudoers
           mv /tmp/sudoers /etc/sudoers
