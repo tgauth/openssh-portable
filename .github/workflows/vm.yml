@@ -335,7 +335,7 @@ jobs:
           touch /etc/ssh/ssh_known_hosts
           pkg_add git
 
-    - name: Fetch sysupgrade version
+    - name: fetch sysupgrade version
       run: |
         ver=$(curl -s https://cdn.openbsd.org/pub/OpenBSD/snapshots/amd64/BUILDINFO)
         echo "SNAPSHOT_VERSION=${ver}" >> $GITHUB_ENV

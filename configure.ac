@@ -3240,12 +3240,23 @@ if test "x$openssl" = "xyes" ; then
 	])
 
 	if test "x$openssl_engine" = "xyes" ; then
+		AC_CHECK_HEADERS([openssl/opensslconf.h openssl/configuration.h])
 		AC_MSG_CHECKING([for OpenSSL ENGINE support])
 		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+	#ifdef HAVE_OPENSSL_OPENSSLCONF_H
+	# include <openssl/opensslconf.h>
+	#endif
+	#ifdef HAVE_OPENSSL_CONFIGURATION_H
+	# include <openssl/configuration.h>
+	#endif
 	#include <openssl/engine.h>
 			]], [[
+				#ifndef OPENSSL_NO_ENGINE
 				ENGINE_load_builtin_engines();
 				ENGINE_register_all_complete();
+				#else
+				#error "OPENSSL_NO_ENGINE"
+				#endif
 			]])],
 			[ AC_MSG_RESULT([yes])
 			  AC_DEFINE([USE_OPENSSL_ENGINE], [1],

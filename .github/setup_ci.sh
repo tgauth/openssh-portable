@@ -20,16 +20,17 @@ case "$host" in
 	PACKAGER=setup
 	echo Setting CYGWIN system environment variable.
 	setx CYGWIN "winsymlinks:native"
-	echo Removing extended ACLs so umask works as expected.
-	set -x
-	setfacl -b . regress
-	icacls regress /c /t /q /Inheritance:d
-	icacls regress /c /t /q /Grant ${USERNAME}:F
-	icacls regress /c /t /q /Remove:g "Authenticated Users" \
-	     BUILTIN\\Administrators BUILTIN Everyone System Users
-	takeown /F regress
+	echo Removing extended ACLs on regress so umask works as expected.
+	echo "Original ACLs"
 	icacls regress
-	set +x
+	setfacl -b regress
+	icacls regress /c /t /q /grant 'BUILTIN\Administrators:(RX)'
+	echo "Modifiled ACLs"
+	icacls regress
+	echo Enabling OpenSSL rh-allow-sha1-signatures for unit tests.
+	cp /etc/pki/tls/openssl.cnf /etc/pki/tls/openssl.cnf.bak
+	sed -i -e '/\[ default_modules \]/a alg_section = evp_properties\n[evp_properties]\nrh-allow-sha1-signatures = yes\n' /etc/pki/tls/openssl.cnf
+	diff -u /etc/pki/tls/openssl.cnf.bak /etc/pki/tls/openssl.cnf
 	PACKAGES="$PACKAGES,autoconf,automake,cygwin-devel,gcc-core"
 	PACKAGES="$PACKAGES,make,openssl,libssl-devel,zlib-devel"
 	;;
@@ -143,7 +144,8 @@ for TARGET in $TARGETS; do
         case ${INSTALL_OPENSSL} in
           1.1.1_stable)	INSTALL_OPENSSL="OpenSSL_1_1_1-stable" ;;
           1.*)	INSTALL_OPENSSL="OpenSSL_$(echo ${INSTALL_OPENSSL} | tr . _)" ;;
-          3.*)	INSTALL_OPENSSL="openssl-${INSTALL_OPENSSL}" ;;
+          master)	;;
+          *)	INSTALL_OPENSSL="openssl-${INSTALL_OPENSSL}" ;;
         esac
         PACKAGES="${PACKAGES} putty-tools dropbear-bin"
        ;;

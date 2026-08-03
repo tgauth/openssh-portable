@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.334 2026/03/03 09:57:25 dtucker Exp $ */
+/* $OpenBSD: packet.c,v 1.335 2026/04/13 08:18:33 job Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -163,6 +163,9 @@ struct session_state {
 	/* Flag indicating whether this module has been initialized. */
 	int initialized;
 
+	/* Monotonic clock timestamp when the connection was started. */
+	time_t start_time;
+
 	/* Set to true if the connection is interactive. */
 	int interactive_mode;
 
@@ -314,6 +317,7 @@ ssh_packet_set_connection(struct ssh *ssh, int fd_in, int fd_out)
 		return NULL;
 	}
 	state = ssh->state;
+	state->start_time = monotime();
 	state->connection_in = fd_in;
 	state->connection_out = fd_out;
 	if ((r = cipher_init(&state->send_context, none,
@@ -3085,6 +3089,7 @@ connection_info_message(struct ssh *ssh)
 
 	xasprintf(&ret, "Connection information for %s pid %lld\r\n"
 	    "%s"
+	    "  duration %s\r\n"
 	    "  kexalgorithm %s\r\n  hostkeyalgorithm %s\r\n"
 	    "  cipher %s\r\n  mac %s\r\n  compression %s\r\n"
 	    "  rekey %s %s\r\n"
@@ -3092,6 +3097,7 @@ connection_info_message(struct ssh *ssh)
 	    "%s",
 	    thishost, (long long)getpid(),
 	    tcp_info,
+	    fmt_timeframe(monotime() - state->start_time),
 	    kex->name, kex->hostkey_alg,
 	    cipher, mac, comp,
 	    rekey_volume, rekey_time,
