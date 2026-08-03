@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-agent.c,v 1.324 2026/03/10 07:27:14 djm Exp $ */
+/* $OpenBSD: ssh-agent.c,v 1.325 2026/04/28 21:32:05 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -2572,6 +2572,14 @@ skip:
 	sigaddset(&nsigset, SIGTERM);
 	sigaddset(&nsigset, SIGUSR1);
 
+	if (socket_name != NULL && unveil(socket_name, "c") == -1) {
+		fatal("%s: unveil %s %s", __progname, socket_name,
+		    strerror(errno));
+	}
+	if (*socket_dir != '\0' && unveil(socket_dir, "c") == -1) {
+		fatal("%s: unveil %s %s", __progname, socket_dir,
+		    strerror(errno));
+	}
 	if (unveil("/", "r") == -1)
 		fatal("%s: unveil /: %s", __progname, strerror(errno));
 	if ((ccp = getenv("SSH_SK_HELPER")) == NULL || *ccp == '\0')

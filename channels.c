@@ -1,4 +1,4 @@
-/* $OpenBSD: channels.c,v 1.458 2026/03/28 05:16:18 djm Exp $ */
+/* $OpenBSD: channels.c,v 1.459 2026/04/20 07:43:52 job Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -368,7 +368,7 @@ channel_classify(struct ssh *ssh, Channel *c)
 /*
  * Sets "extended type" of a channel; used by session layer to add additional
  * information about channel types (e.g. shell, login, subsystem) that can then
- * be used to select timeouts.
+ * be used to select timeouts and DSCP values.
  * Will reset c->inactive_deadline as a side-effect.
  */
 void
