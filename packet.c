@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.335 2026/04/13 08:18:33 job Exp $ */
+/* $OpenBSD: packet.c,v 1.338 2026/05/31 04:44:38 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -304,7 +304,7 @@ ssh_packet_set_connection(struct ssh *ssh, int fd_in, int fd_out)
 {
 	struct session_state *state;
 	const struct sshcipher *none = cipher_by_name("none");
-	int r;
+	int r, wasnull = ssh == NULL;
 
 	if (none == NULL) {
 		error_f("cannot load cipher 'none'");
@@ -325,7 +325,8 @@ ssh_packet_set_connection(struct ssh *ssh, int fd_in, int fd_out)
 	    (r = cipher_init(&state->receive_context, none,
 	    (const u_char *)"", 0, NULL, 0, CIPHER_DECRYPT)) != 0) {
 		error_fr(r, "cipher_init failed");
-		free(ssh); /* XXX need ssh_free_session_state? */
+		if (wasnull)
+			free(ssh); /* XXX need ssh_free_session_state? */
 		return NULL;
 	}
 	state->newkeys[MODE_IN] = state->newkeys[MODE_OUT] = NULL;
@@ -1952,6 +1953,13 @@ ssh_packet_read_poll_seqnr(struct ssh *ssh, u_char *typep, uint32_t *seqnr_p)
 			DBG(debug("Received SSH2_MSG_PONG len %zu", len));
 			break;
 		default:
+			if (ssh->kex != NULL &&
+			    (ssh->kex->flags & KEX_INIT_RECVD) != 0 &&
+			    !ssh_packet_type_is_kex(*typep)) {
+				error("non-transport message %u received "
+				    "from peer during key exchange", *typep);
+				return SSH_ERR_PROTOCOL_ERROR;
+			}
 			return 0;
 		}
 	}
@@ -2538,7 +2546,9 @@ newkeys_from_blob(struct sshbuf *m, struct ssh *ssh, int mode)
 	    (r = sshbuf_get_string(b, &enc->key, &keylen)) != 0 ||
 	    (r = sshbuf_get_string(b, &enc->iv, &ivlen)) != 0)
 		goto out;
-	if ((enc->cipher = cipher_by_name(enc->name)) == NULL) {
+	if ((enc->cipher = cipher_by_name(enc->name)) == NULL ||
+	    enc->block_size != cipher_blocksize(enc->cipher) ||
+	    cipher_is_internal(enc->cipher)) {
 		r = SSH_ERR_INVALID_FORMAT;
 		goto out;
 	}
@@ -2550,7 +2560,7 @@ newkeys_from_blob(struct sshbuf *m, struct ssh *ssh, int mode)
 		if ((r = sshbuf_get_u32(b, (u_int *)&mac->enabled)) != 0 ||
 		    (r = sshbuf_get_string(b, &mac->key, &maclen)) != 0)
 			goto out;
-		if (maclen > mac->key_len) {
+		if (maclen != mac->key_len) {
 			r = SSH_ERR_INVALID_FORMAT;
 			goto out;
 		}
@@ -2596,6 +2606,10 @@ kex_from_blob(struct sshbuf *m, struct kex **kexp)
 	    (r = sshbuf_get_stringb(m, kex->session_id)) != 0 ||
 	    (r = sshbuf_get_u32(m, &kex->flags)) != 0)
 		goto out;
+	if (kex->we_need > 1024) {
+		r = SSH_ERR_INVALID_FORMAT;
+		goto out;
+	}
 	kex->server = 1;
 	kex->done = 1;
 	r = 0;
