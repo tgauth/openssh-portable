@@ -1,0 +1,177 @@
+name: Weekly upstream merge
+
+# Incrementally merges new upstream OpenSSH commits into a long-lived `vnext`
+# integration branch, resolving conflicts / build breaks agentically (capped
+# retries), running the full Windows CI suite, and opening a human-review PR.
+#
+# IMPORTANT (GitHub behavior): the `schedule` trigger only fires from the
+# repository's DEFAULT branch (latestw_all). While this workflow lives only on
+# latestw_all_copilot it will NOT run on the cron automatically -- use the
+# manual "Run workflow" button (workflow_dispatch) against latestw_all_copilot.
+# Once latestw_all_copilot is merged into latestw_all, the weekly schedule
+# activates on its own.
+#
+# Merging `vnext` -> latestw_all on an upstream release is a SEPARATE, manual
+# process and is intentionally NOT done here.
+
+on:
+  schedule:
+    # Mondays 08:00 UTC.
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to merge up to (blank = upstream default branch tip)'
+        required: false
+        default: ''
+      max_batches:
+        description: 'Max batches to merge in this run'
+        required: false
+        default: '4'
+      max_agent_attempts:
+        description: 'Max agent retries per failing step'
+        required: false
+        default: '3'
+      skip_agent:
+        description: 'Deterministic dry-run: skip all agentic steps'
+        type: boolean
+        required: false
+        default: false
+      skip_final_ci:
+        description: 'Skip the final full CI suite'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  # Never let two merge runs race on the vnext branch.
+  group: weekly-upstream-merge
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # push vnext
+  pull-requests: write   # open/update the review PR
+
+env:
+  UPSTREAM_REMOTE: upstream
+  UPSTREAM_URL: https://github.com/openssh/openssh-portable.git
+  VNEXT_BRANCH: vnext
+  TARGET_BRANCH: latestw_all
+  ARCHITECTURE: x64
+
+jobs:
+  merge:
+    name: Merge, validate, and open review PR
+    runs-on: windows-latest
+    timeout-minutes: 600
+    steps:
+      - name: Checkout (workflow branch, full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # A PAT/app token with push rights is recommended so the pushed
+          # vnext branch can re-trigger downstream checks. Falls back to the
+          # default GITHUB_TOKEN when the secret is absent.
+          token: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+
+      # The build/test tooling lives at .github/tools on the branch this
+      # workflow ships on. Stage a self-contained copy BEFORE we start checking
+      # out vnext (whose tree may not yet contain the toolkit), so the driver
+      # can always find its scripts + prompt.
+      - name: Stage merge toolkit
+        shell: pwsh
+        run: |
+          $dst = Join-Path $env:RUNNER_TEMP 'merge-toolkit'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Recurse -Force '.github/tools' (Join-Path $dst 'tools')
+          Copy-Item -Force '.github/upstream-merge/merge-autonomous.prompt.md' $dst
+          Copy-Item -Force '.github/upstream-merge/Invoke-WeeklyUpstreamMerge.ps1' $dst
+          "TOOLKIT_DIR=$dst" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Toolkit staged at $dst"
+
+      - name: Configure upstream remote
+        shell: pwsh
+        run: |
+          $existing = (git remote) -split "`n"
+          if ($existing -notcontains $env:UPSTREAM_REMOTE) {
+            git remote add $env:UPSTREAM_REMOTE $env:UPSTREAM_URL
+          } else {
+            git remote set-url $env:UPSTREAM_REMOTE $env:UPSTREAM_URL
+          }
+          git fetch $env:UPSTREAM_REMOTE --prune --tags
+
+      - name: Install GitHub Copilot CLI
+        if: ${{ inputs.skip_agent != true }}
+        shell: pwsh
+        run: npm install -g @github/copilot
+
+      - name: Run weekly upstream merge
+        id: merge
+        shell: pwsh
+        env:
+          # Token the Copilot CLI authenticates with (must have Copilot access).
+          GH_TOKEN: ${{ secrets.COPILOT_CLI_TOKEN || github.token }}
+          COPILOT_CLI_TOKEN: ${{ secrets.COPILOT_CLI_TOKEN }}
+        run: |
+          $skipAgent = '${{ inputs.skip_agent }}' -eq 'true'
+          $skipCI    = '${{ inputs.skip_final_ci }}' -eq 'true'
+          $args = @(
+            '-ToolkitDir',       $env:TOOLKIT_DIR,
+            '-UpstreamRemote',   $env:UPSTREAM_REMOTE,
+            '-VNextBranch',      $env:VNEXT_BRANCH,
+            '-TargetBranch',     $env:TARGET_BRANCH,
+            '-Architecture',     $env:ARCHITECTURE,
+            '-MaxBatchesPerRun', ('${{ inputs.max_batches }}'        ? '${{ inputs.max_batches }}'        : '4'),
+            '-MaxAgentAttempts', ('${{ inputs.max_agent_attempts }}' ? '${{ inputs.max_agent_attempts }}' : '3'),
+            '-UpstreamRef',      '${{ inputs.upstream_ref }}',
+            '-ReportPath',       (Join-Path $env:RUNNER_TEMP 'merge-report.md')
+          )
+          if ($skipAgent) { $args += '-SkipAgent' }
+          if ($skipCI)    { $args += '-SkipFinalCI' }
+
+          & pwsh -NoProfile -File (Join-Path $env:TOOLKIT_DIR 'Invoke-WeeklyUpstreamMerge.ps1') @args
+          exit $LASTEXITCODE
+        continue-on-error: true
+
+      - name: Upload run report + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-upstream-merge-report
+          path: |
+            ${{ runner.temp }}/merge-report.md
+          if-no-files-found: warn
+
+      - name: Open or update review pull request
+        if: ${{ steps.merge.outputs.batches_merged != '' && steps.merge.outputs.batches_merged != '0' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+        run: |
+          $vnext   = '${{ steps.merge.outputs.vnext_branch }}'
+          $target  = '${{ steps.merge.outputs.target_branch }}'
+          $needs   = '${{ steps.merge.outputs.needs_human }}'
+          $ci      = '${{ steps.merge.outputs.ci_status }}'
+          $reportP = '${{ steps.merge.outputs.report_path }}'
+          $body    = (Test-Path $reportP) ? (Get-Content -Raw $reportP) : 'No report produced.'
+
+          $flag  = ($needs -eq 'true') ? 'ATTENTION NEEDED' : 'ready for review'
+          $title = "Weekly upstream merge into $vnext (CI: $ci) - $flag"
+
+          $existing = gh pr list --head $vnext --base $target --state open --json number --jq '.[0].number'
+          if ([string]::IsNullOrWhiteSpace($existing)) {
+            $body | gh pr create --head $vnext --base $target --title $title --body-file -
+          } else {
+            $body | gh pr edit $existing --title $title --body-file -
+          }
+
+      - name: Reflect run status
+        if: always()
+        shell: pwsh
+        run: |
+          $needs = '${{ steps.merge.outputs.needs_human }}'
+          if ($needs -eq 'true') {
+            Write-Host '::warning::Weekly upstream merge needs human attention - see the review PR and report artifact.'
+            exit 1
+          }
+          Write-Host 'Weekly upstream merge completed cleanly.'
