@@ -135,10 +135,10 @@ jobs:
     - name: install cygwin
       id: cygwin_install
       if: ${{ startsWith(matrix.target, 'windows') }}
-      uses: cygwin/cygwin-install-action@master
+      uses: cygwin/cygwin-install-action@a3d72946b163026bbd0fa9a88379ccbda4bd86bb # master
       env:
         CYGWIN: "winsymlinks:native"
-    - uses: actions/checkout@main
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # main
     - name: setup CI system
       run: |
         sh -c "timeout 1200 .github/setup_ci.sh ${{ matrix.config }} ${{ matrix.target }} || .github/setup_ci.sh ${{ matrix.config }} ${{ matrix.target }}"
@@ -149,7 +149,7 @@ jobs:
     - name: configure
       run: sh ./.github/configure.sh ${{ matrix.config }}
     - name: save config
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # main
       with:
         name: ${{ matrix.target }}-${{ matrix.config }}-config
         path: config.h
@@ -177,7 +177,7 @@ jobs:
       run: sh -c "for i in regress/failed*.log; do echo ====; echo logfile $i; echo =====; cat $i; done"
     - name: save logs
       if: failure()
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # main
       with:
         name: ${{ matrix.target }}-${{ matrix.config }}-logs
         path: |
