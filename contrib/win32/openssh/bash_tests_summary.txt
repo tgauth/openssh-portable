@@ -1,0 +1,13 @@
+{
+  "StartTime": "8/4/2026 11:15:31 AM",
+  "EndTime": "8/4/2026 11:15:41 AM",
+  "TotalExecutionTime": "00:00:10",
+  "TotalBashTests": 1,
+  "TotalBashTestsPassed": 1,
+  "TotalBashTestsFailed": 0,
+  "TotalBashTestsSkipped": 0,
+  "FailedBashTests": "",
+  "SkippedBashTests": "",
+  "BashTestSummaryFile": "C:\\repos\\openssh-portable\\contrib\\win32\\openssh\\bash_tests_summary.txt",
+  "BashTestLogFile": "C:\\repos\\openssh-portable\\contrib\\win32\\openssh\\bash_tests_output.log"
+}
