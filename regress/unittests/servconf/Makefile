@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.1 2026/05/31 11:39:44 djm Exp $
+#	$OpenBSD: Makefile,v 1.2 2026/06/14 04:08:06 djm Exp $
 
 PROG=test_servconf
 SRCS=tests.c
@@ -16,6 +16,7 @@ SRCS+=ssh-ed25519-sk.c sk-usbhid.c ssh-pkcs11-client.c
 SRCS+=utf8.c ssherr-libcrypto.c
 SRCS+=kex.c kex-names.c packet.c dispatch.c compat.c canohost.c
 SRCS+=digest-openssl.c ed25519-openssl.c
+SRCS+=libcrux-mlkem-mldsa.c ssh-mldsa-eddsa.c
 
 REGRESS_TARGETS=run-regress-${PROG}
 
