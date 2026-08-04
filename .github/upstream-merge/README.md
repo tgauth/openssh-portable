@@ -18,8 +18,9 @@ Once per week the workflow:
    **`latestw_all`** on the first run, then reused and added to every week.
 3. Merges the next batch(es) of upstream commits into `vnext`
    (`git merge --no-ff`), where a batch is chosen by
-   [`Get-CommitGroups.ps1`](../tools/Get-CommitGroups.ps1) using CI-presence
-   grouping. Up to `MaxBatchesPerRun` batches per run (default **4**).
+   [`Get-CommitGroups.ps1`](../tools/Get-CommitGroups.ps1) using CI-success
+   grouping (each batch ends at an upstream commit whose CI fully passed).
+   Up to `MaxBatchesPerRun` batches per run (default **4**).
 4. For each batch:
    - **Conflicts** → the `merge-upstream` agent resolves them, retrying up to
      `MaxAgentAttempts` (default **3**). If still unresolved, the batch is

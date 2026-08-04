@@ -15,7 +15,7 @@
          branch, e.g. latestw_all, on first run; reused thereafter).
       3. Repeatedly:
            a. Ask Get-CommitGroups for the next mergeable batch of upstream
-              commits (CI-presence grouping) that is not yet on `vnext`.
+              commits (CI-success grouping) that is not yet on `vnext`.
            b. `git merge --no-ff` that batch's endpoint into `vnext`.
            c. If there are conflicts, invoke the merge agent (Copilot CLI) to
               resolve them, retrying up to -MaxAgentAttempts times. Every
@@ -310,8 +310,10 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
     Write-Log "[$i/$MaxBatchesPerRun] Selecting next batch from $($startSha.Substring(0,12))..$($endSha.Substring(0,12))"
     $chunk = $null
     try {
+        # Group by CI success: each batch ends at an upstream commit whose CI
+        # fully passed (safe stopping point).
         $chunk = & pwsh -NoProfile -File $getGroups `
-            -StartCommit $startSha -EndCommit $endSha -FirstChunkOnly -GroupByCIPresence |
+            -StartCommit $startSha -EndCommit $endSha -FirstChunkOnly |
             Select-Object -Last 1
     } catch {
         Write-Log "Get-CommitGroups failed: $_" 'ERROR'
