@@ -12,6 +12,10 @@ for i in `$SSH -Q HostKeyAlgorithms`; do
 		algs="$algs,$i"
 	fi
 done
+if [ "$os" == "windows" ]; then
+	# ssh -Q output is CRLF-terminated on Windows
+	algs=`echo $algs | tr -d '\r'`
+fi
 echo "HostKeyAlgorithms $algs" >> $OBJ/sshd_config
 
 start_sshd
