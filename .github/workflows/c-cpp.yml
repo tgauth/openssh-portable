@@ -125,6 +125,7 @@ jobs:
     runs-on: ${{ matrix.target }}
     env:
       EPHEMERAL_VM: yes
+      CYGWIN: "winsymlinks:native"
     steps:
     - name: check RUN_ONLY_TARGET_CONFIG
       if: vars.RUN_ONLY_TARGET_CONFIG != ''
@@ -136,9 +137,8 @@ jobs:
       id: cygwin_install
       if: ${{ startsWith(matrix.target, 'windows') }}
       uses: cygwin/cygwin-install-action@a3d72946b163026bbd0fa9a88379ccbda4bd86bb # master
-      env:
-        CYGWIN: "winsymlinks:native"
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # main
+    - name: checkout openssh git repo
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # main
     - name: setup CI system
       run: |
         sh -c "timeout 1200 .github/setup_ci.sh ${{ matrix.config }} ${{ matrix.target }} || .github/setup_ci.sh ${{ matrix.config }} ${{ matrix.target }}"
@@ -156,7 +156,7 @@ jobs:
     - name: make clean
       run: make clean
     - name: make
-      run: make
+      run: make -j2
     - name: make tests
       run: sh ./.github/run_test.sh ${{ matrix.config }}
       env:
