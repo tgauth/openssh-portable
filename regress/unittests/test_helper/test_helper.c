@@ -155,7 +155,7 @@ main(int argc, char **argv)
 
 	seed_rng();
 #ifdef WITH_OPENSSL
-	ERR_load_crypto_strings();
+	OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CRYPTO_STRINGS, NULL);
 #endif
 
 #ifdef WINDOWS
