@@ -70,6 +70,26 @@ stages:
         dependenciesArtifactName: vcpkg-dependencies-x86
         vcpkgCacheDir: '$(vcpkgCacheDir)'
 
+  - job: BuildPkg_Coverage_x64
+    displayName: Build Coverage Package (x64 Debug + /PROFILE)
+    pool:
+      vmImage: windows-latest
+    # Consumed only by the PR-only coverage job, so don't spend build time on
+    # branch builds (where CodeQL already competes for the agent budget).
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    # Non-gating: a coverage-specific build failure must never block the pipeline.
+    continueOnError: true
+    steps:
+    - template: ./templates/build-win32-openssh-job.yml
+      parameters:
+        nativeHostArch: x64
+        buildOutputDir: x64
+        artifactSuffix: Coverage-x64
+        dependenciesArtifactName: vcpkg-dependencies-x64
+        vcpkgCacheDir: '$(vcpkgCacheDir)'
+        configuration: Debug
+        linkerOptions: '/PROFILE'
+
 - stage: Test
   displayName: Test Win32-OpenSSH
   dependsOn: Build
@@ -177,19 +197,19 @@ stages:
       coverageDir: '$(Build.SourcesDirectory)/CodeCoverage'
     steps:
     - task: DownloadBuildArtifacts@0
-      displayName: 'Download build artifacts (with symbols)'
+      displayName: 'Download coverage build artifacts (Debug + symbols)'
       inputs:
         buildType: current
         downloadType: single
-        artifactName: Win32-OpenSSH-x64
+        artifactName: Win32-OpenSSH-Coverage-x64
         downloadPath: '$(System.ArtifactsDirectory)'
 
     - task: DownloadBuildArtifacts@0
-      displayName: 'Download unit test artifacts'
+      displayName: 'Download coverage unit test artifacts'
       inputs:
         buildType: current
         downloadType: single
-        artifactName: UnitTests-x64
+        artifactName: UnitTests-Coverage-x64
         downloadPath: '$(System.ArtifactsDirectory)'
 
     - task: DownloadBuildArtifacts@0
@@ -202,10 +222,10 @@ stages:
 
     - pwsh: |
         Import-Module -Name "$(Build.SourcesDirectory)/contrib/win32/openssh/AzDOBuildTools" -Force
-        # The build package copies .pdb symbols alongside the binaries, which
-        # OpenCppCoverage needs to map executed instructions back to source.
-        Install-OpenSSH -SourceDir "$(System.ArtifactsDirectory)/Win32-OpenSSH-x64/x64/Release" -OpenSSHDir "$env:SystemDrive/OpenSSH" -Verbose
-        Install-UnitTests -SourceDir "$(System.ArtifactsDirectory)/UnitTests-x64/x64/Release" -OpenSSHDir "$env:SystemDrive/OpenSSH" -Verbose
+        # Install the Debug (/PROFILE) build so Microsoft.CodeCoverage.Console can
+        # statically instrument the OpenSSH binaries and unit tests.
+        Install-OpenSSH -SourceDir "$(System.ArtifactsDirectory)/Win32-OpenSSH-Coverage-x64/x64/Debug" -OpenSSHDir "$env:SystemDrive/OpenSSH" -Verbose
+        Install-UnitTests -SourceDir "$(System.ArtifactsDirectory)/UnitTests-Coverage-x64/x64/Debug" -OpenSSHDir "$env:SystemDrive/OpenSSH" -Verbose
       displayName: Install Win32-OpenSSH and unit tests
 
     - pwsh: |

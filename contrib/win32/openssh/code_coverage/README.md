@@ -9,32 +9,40 @@ de-duplicated number that accounts for overlap between the suites.
 
 | File | Purpose |
 |------|---------|
-| `OpenSSHCodeCoverage.psm1` | Module. Pure aggregation/overlap helpers **and** OpenCppCoverage orchestration. |
+| `OpenSSHCodeCoverage.psm1` | Module. Pure aggregation/overlap helpers **and** Microsoft.CodeCoverage.Console orchestration. |
 | `OpenSSHCodeCoverage.tests.ps1` | Pester 5 tests for the pure helpers (no build required). |
 | `Invoke-OpenSSHCodeCoverage.ps1` | Local end-to-end driver: build → run suites under coverage → merge → summarize. |
 | `Invoke-AzDOCodeCoverage.ps1` | CI entry point: run one suite (Core/Bash) under coverage against an installed OpenSSH dir, then merge. |
 
 All files live in `contrib\win32\openssh\code_coverage\`.
 
-## Why OpenCppCoverage
+## Why Microsoft.CodeCoverage.Console
 
-[OpenCppCoverage](https://github.com/OpenCppCoverage/OpenCppCoverage) is the
-standard open-source, MSVC-compatible C/C++ coverage tool for Windows. It:
+[Microsoft.CodeCoverage.Console](https://learn.microsoft.com/visualstudio/test/microsoft-code-coverage-console-tool)
+is the Microsoft-maintained coverage tool that ships with Visual Studio 2022
+(17.3+). Native C/C++ coverage requires the **Enterprise** edition (the hosted
+`windows-latest` Azure DevOps image includes it). It:
 
-- reads the debug **PDBs** to map executed instructions back to source lines
-  (no special build flags or instrumentation needed — just a Debug build),
-- with `--cover_children`, attaches to a launched process **and every child it
-  spawns**, so monitoring the test harness captures every `ssh.exe`,
-  `sshd.exe`, `sftp.exe`, `unittest-*.exe`, etc. the tests launch,
-- exports **binary** (`.cov`, re-mergeable), **Cobertura XML**, and **HTML**.
+- collects **native C/C++** line coverage via **static instrumentation** — the
+  binaries are built with the `/PROFILE` linker switch and rewritten on disk by
+  the `instrument` command,
+- supports **server mode** (`collect --session-id <id> --server-mode`): every
+  instrumented process that runs while the collector owns the session reports
+  in by session id — including `sshd.exe` running as a Windows **service**,
+  which is *not* a child of the collector,
+- emits `.coverage` (re-mergeable) and, via `merge`, **Cobertura XML**.
+
+Server mode is why coverage captures the E2E/bash suites: those drive a real
+sshd service plus `ssh.exe`/`sftp.exe` clients, none of which are children of a
+single wrapped process.
 
 ## How aggregation and overlap work
 
-Each suite is measured independently and produces its own `.cov` + Cobertura
-report. The `.cov` files are then merged natively by OpenCppCoverage. Merging
-**unions per-line hit counts**, so a line exercised by two suites is counted
-exactly once in the combined total — that is the de-duplication that makes the
-aggregate honest.
+Each suite is measured independently and produces its own `.coverage` +
+Cobertura report. The `.coverage` files are then merged natively
+(`merge ... -f cobertura`). Merging **unions per-line hit counts**, so a line
+exercised by two suites is counted exactly once in the combined total — that is
+the de-duplication that makes the aggregate honest.
 
 The pure helpers additionally quantify the redundancy:
 
@@ -46,14 +54,17 @@ OverlapLines         = SumCoveredLines - CombinedCoveredLines
 
 ## Usage
 
-Requires: Visual Studio build tools (to build the solution), Chocolatey (to
-auto-install OpenCppCoverage), and the test-suite prerequisites (Cygwin for the
-bash suite, Pester for E2E — the existing helpers install these).
+Requires: Visual Studio 2022 **Enterprise** (17.3+) — provides both the build
+tools and `Microsoft.CodeCoverage.Console.exe` for native coverage — and the
+test-suite prerequisites (Cygwin for the bash suite, Pester for E2E — the
+existing helpers install these). The local driver builds `Debug` with
+`/PROFILE` automatically (via the linker `LINK` env var) so the binaries can be
+instrumented.
 
 ```powershell
 cd contrib\win32\openssh\code_coverage
 
-# All suites, Debug build (recommended for accurate PDBs):
+# All suites, Debug build (recommended for accurate line mapping):
 .\Invoke-OpenSSHCodeCoverage.ps1 -Configuration Debug
 
 # A single suite against an already-built tree:
@@ -66,13 +77,12 @@ cd contrib\win32\openssh\code_coverage
 ### Output artifacts (under `-OutputDirectory`, default `.\coverage`)
 
 ```
-unit\unit.cov,  unit\unit.cobertura.xml       per-suite (unit tests)
-e2e\e2e.cov,    e2e\e2e.cobertura.xml         per-suite (Pester E2E)
-bash\bash.cov,  bash\bash.cobertura.xml       per-suite (bash tests)
-merged\merged.cobertura.xml                   combined, de-duplicated (native merge)
-merged\html\                                  browsable HTML report
-coverage-summary.json                         machine-readable summary
-coverage-summary.md                           per-suite + combined + overlap table
+unit\unit.coverage,  unit\unit.cobertura.xml       per-suite (unit tests)
+e2e\e2e.coverage,    e2e\e2e.cobertura.xml         per-suite (Pester E2E)
+bash\bash.coverage,  bash\bash.cobertura.xml       per-suite (bash tests)
+merged\merged.cobertura.xml                        combined, de-duplicated (native merge)
+coverage-summary.json                              machine-readable summary
+coverage-summary.md                                per-suite + combined + overlap table
 ```
 
 Example `coverage-summary.md`:
@@ -94,7 +104,7 @@ Example `coverage-summary.md`:
 ## Validating the helpers
 
 The aggregation/overlap logic is unit tested and does **not** require a build,
-OpenCppCoverage, or the OpenSSH suites:
+Microsoft.CodeCoverage.Console, or the OpenSSH suites:
 
 ```powershell
 Invoke-Pester -Path .\OpenSSHCodeCoverage.tests.ps1 -Output Detailed
@@ -102,27 +112,33 @@ Invoke-Pester -Path .\OpenSSHCodeCoverage.tests.ps1 -Output Detailed
 
 ## Continuous integration (Azure DevOps)
 
-`.azdo/ci.yml` runs a non-gating **Win32-OpenSSH Code Coverage** job in the
-Test stage, in parallel with the existing test jobs. It:
+Coverage is wired into `.azdo/ci.yml` as two dedicated, **PR-only, non-gating**
+jobs (they never run on branch builds, where CodeQL already competes for the
+~60 min agent budget, and `continueOnError: true` so they never block a merge):
 
-1. downloads the build artifacts (which include `.pdb` symbols) and unit tests,
-   and installs OpenSSH to `C:\OpenSSH`,
-2. runs `Invoke-AzDOCodeCoverage.ps1 -Suite Core` (setup + unit + E2E) and then
-   `-Suite Bash`, each under OpenCppCoverage,
-3. merges the per-suite `.cov` files, then publishes the merged Cobertura report
-   via `PublishCodeCoverageResults@2` and uploads the full
-   `Win32-OpenSSH-CodeCoverage` artifact (per-suite reports, HTML, summaries).
+1. **Build Coverage Package (x64 Debug + /PROFILE)** — a Build-stage job that
+   builds the solution `Debug|x64` with `/PROFILE` injected via the linker
+   `LINK` env var (no `.vcxproj` edits), publishing `Win32-OpenSSH-Coverage-x64`
+   and `UnitTests-Coverage-x64` (binaries + PDBs). It runs in parallel with the
+   normal Release build, so it does not eat into the coverage job's budget.
+2. **Win32-OpenSSH Code Coverage** — a Test-stage job that installs the coverage
+   build to `C:\OpenSSH`, then runs `Invoke-AzDOCodeCoverage.ps1 -Suite Core`
+   (setup + unit + E2E) and `-Suite Bash`. Each invocation instruments the
+   installed binaries, runs the suite under a server-mode collector, converts to
+   Cobertura, and aggregates every per-suite report. It publishes the merged
+   Cobertura via `PublishCodeCoverageResults@2` and uploads the full
+   `Win32-OpenSSH-CodeCoverage` artifact (per-suite reports + summaries).
 
-The job is marked `continueOnError: true` so coverage never blocks a merge. The
-suites run the exact CI entry points (`Invoke-OpenSSHTests`,
+The suites run the exact CI entry points (`Invoke-OpenSSHTests`,
 `Invoke-OpenSSHBashTestsOnly`), so coverage reflects what CI already exercises.
 
 ## Notes
 
-- Use a **Debug** configuration locally for the most faithful line mapping.
-  Release with full optimizations can fold/reorder lines and understate
-  coverage; CI measures the Release artifacts it already produces.
-- Coverage is scoped to repository sources via `--sources <repo root>` and to the
-  built binaries via `--modules <bin dir>`, so third-party/system code is excluded.
+- A **Debug** build is used for coverage so line mapping is accurate; optimized
+  Release builds can fold/reorder/strip lines and understate coverage.
+- Native C/C++ coverage requires **Visual Studio 2022 Enterprise** and binaries
+  linked with `/PROFILE`; the coverage build job and local driver handle both.
+- Coverage is scoped to OpenSSH source files at report time (paths are
+  normalized to the repository root), so third-party/system code is excluded.
 - The tooling reuses the existing suite entry points, so it measures exactly what
   CI already runs.

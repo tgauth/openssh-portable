@@ -8,18 +8,21 @@
     bash test suites, then aggregates them into a single de-duplicated report.
 
     .DESCRIPTION
-    For each requested suite the script runs the suite under OpenCppCoverage,
-    which attaches to the launched process and every child it spawns (ssh.exe,
-    sshd.exe, sftp.exe, the unittest-*.exe binaries, ...) and records line
-    coverage from the debug PDBs. Each suite produces:
+    The OpenSSH binaries in bin\<arch>\<Configuration> (built with the /PROFILE
+    linker switch so they can be statically instrumented) are instrumented once
+    with Microsoft.CodeCoverage.Console. Each requested suite then runs while a
+    background server-mode collector owns a shared session id, so every
+    instrumented OpenSSH process that executes - ssh.exe, sshd.exe (including as
+    a service), sftp.exe, the unittest-*.exe binaries, ... - is captured
+    regardless of parent. Each suite produces:
 
-        <OutputDirectory>\<suite>\<suite>.cov            (binary, mergeable)
-        <OutputDirectory>\<suite>\<suite>.cobertura.xml  (per-suite report)
+        <OutputDirectory>\<suite>\<suite>.coverage        (binary, mergeable)
+        <OutputDirectory>\<suite>\<suite>.cobertura.xml   (per-suite report)
 
-    The binary files are merged natively by OpenCppCoverage into
-    <OutputDirectory>\merged\merged.cobertura.xml (plus an HTML report). Because
-    merging unions per-line hits, a line exercised by two suites is counted once
-    - that is the aggregation-with-overlap behaviour requested.
+    The per-suite .coverage files are merged natively into
+    <OutputDirectory>\merged\merged.cobertura.xml. Because merging unions
+    per-line hits, a line exercised by two suites is counted once - that is the
+    aggregation-with-overlap behaviour requested.
 
     In parallel, the pure helpers in OpenSSHCodeCoverage.psm1 re-derive the same
     numbers from the per-suite Cobertura reports and additionally quantify how
@@ -28,7 +31,8 @@
         <OutputDirectory>\coverage-summary.json
         <OutputDirectory>\coverage-summary.md
 
-    A Debug build is recommended so that full, unoptimized PDBs are available.
+    A Debug build is recommended so line mapping is accurate (unoptimized code).
+    Native C/C++ coverage requires Visual Studio 2022 Enterprise (17.3+).
 
     .PARAMETER NativeHostArch
     Architecture whose bin\ folder holds the built binaries (x64, x86, arm64, arm).
@@ -93,51 +97,72 @@ if (-not $SkipBuild) {
     if (-not (Get-Command 'Start-OpenSSHBuild' -ErrorAction SilentlyContinue)) {
         throw 'Start-OpenSSHBuild is unavailable; import OpenSSHBuildHelper.psm1 or pass -SkipBuild.'
     }
-    Write-Host "Building Win32-OpenSSH ($NativeHostArch/$Configuration)..."
-    Start-OpenSSHBuild -NativeHostArch $NativeHostArch -Configuration $Configuration
+    Write-Host "Building Win32-OpenSSH ($NativeHostArch/$Configuration) with /PROFILE..."
+    # /PROFILE (honored via the linker's LINK env var) emits the fixups + full
+    # PDBs that static instrumentation needs, without editing any .vcxproj.
+    $previousLink = $env:LINK
+    $env:LINK = ((@($env:LINK, '/PROFILE') | Where-Object { $_ }) -join ' ')
+    try {
+        Start-OpenSSHBuild -NativeHostArch $NativeHostArch -Configuration $Configuration
+    }
+    finally {
+        $env:LINK = $previousLink
+    }
 }
 
 if (-not (Test-Path $binPath)) {
     throw "Binaries not found at $binPath. Build first or correct -NativeHostArch/-Configuration."
 }
 
-$openCpp = Install-OpenCppCoverage
-Write-Host "OpenCppCoverage : $openCpp"
+$tool = Find-CodeCoverageConsole
+Write-Host "CodeCoverage.Console : $tool"
+
+# Instrument the built binaries once; every suite reuses the same session id.
+$targets = Get-OpenSSHCoverageTarget -BinaryDirectory $binPath
+if (-not $targets) {
+    throw "No OpenSSH binaries to instrument were found under '$binPath'."
+}
+$sessionId = [guid]::NewGuid().ToString()
+Write-Host "Instrumenting $($targets.Count) binaries (session $sessionId)..."
+Invoke-CoverageInstrument -BinaryPath $targets -SessionId $sessionId -ToolPath $tool | Out-Null
 
 $pwsh = (Get-Process -Id $PID).Path  # path to the current PowerShell host
 $sessions = @()
 
-# --- Unit tests ------------------------------------------------------------
-if ($Suite -contains 'Unit') {
-    Write-Host "`n=== Unit tests ==="
-    $cmd = "Import-Module '$opensshDir\OpenSSHTestHelper.psm1' -Force; Invoke-OpenSSHUnitTest -UnitTestDirectory '$binPath'"
-    $sessions += Invoke-CoverageSession -Name 'unit' `
-        -Program $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $cmd) `
-        -OutputDirectory (Join-Path $OutputDirectory 'unit') `
-        -SourceRoot $repositoryRoot -ModuleFilter $binPath `
-        -OpenCppCoveragePath $openCpp
-}
+try {
+    # --- Unit tests --------------------------------------------------------
+    if ($Suite -contains 'Unit') {
+        Write-Host "`n=== Unit tests ==="
+        $cmd = "Import-Module '$opensshDir\OpenSSHTestHelper.psm1' -Force; Invoke-OpenSSHUnitTest -UnitTestDirectory '$binPath'"
+        $sessions += Invoke-CoverageSession -Name 'unit' `
+            -Program $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $cmd) `
+            -SessionId $sessionId `
+            -OutputDirectory (Join-Path $OutputDirectory 'unit') -ToolPath $tool
+    }
 
-# --- Pester E2E tests ------------------------------------------------------
-if ($Suite -contains 'E2E') {
-    Write-Host "`n=== Pester E2E tests ==="
-    $cmd = "Import-Module '$opensshDir\OpenSSHTestHelper.psm1' -Force; Set-OpenSSHTestEnvironment -OpenSSHBinPath '$binPath'; Invoke-OpenSSHE2ETest"
-    $sessions += Invoke-CoverageSession -Name 'e2e' `
-        -Program $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $cmd) `
-        -OutputDirectory (Join-Path $OutputDirectory 'e2e') `
-        -SourceRoot $repositoryRoot -ModuleFilter $binPath `
-        -OpenCppCoveragePath $openCpp
-}
+    # --- Pester E2E tests --------------------------------------------------
+    if ($Suite -contains 'E2E') {
+        Write-Host "`n=== Pester E2E tests ==="
+        $cmd = "Import-Module '$opensshDir\OpenSSHTestHelper.psm1' -Force; Set-OpenSSHTestEnvironment -OpenSSHBinPath '$binPath'; Invoke-OpenSSHE2ETest"
+        $sessions += Invoke-CoverageSession -Name 'e2e' `
+            -Program $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $cmd) `
+            -SessionId $sessionId `
+            -OutputDirectory (Join-Path $OutputDirectory 'e2e') -ToolPath $tool
+    }
 
-# --- Bash tests ------------------------------------------------------------
-if ($Suite -contains 'Bash') {
-    Write-Host "`n=== Bash tests ==="
-    $cmd = "Import-Module '$opensshDir\OpenSSHTestHelper.psm1' -Force; Set-OpenSSHTestEnvironment -OpenSSHBinPath '$binPath'; Invoke-OpenSSHBashTests"
-    $sessions += Invoke-CoverageSession -Name 'bash' `
-        -Program $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $cmd) `
-        -OutputDirectory (Join-Path $OutputDirectory 'bash') `
-        -SourceRoot $repositoryRoot -ModuleFilter $binPath `
-        -OpenCppCoveragePath $openCpp
+    # --- Bash tests --------------------------------------------------------
+    if ($Suite -contains 'Bash') {
+        Write-Host "`n=== Bash tests ==="
+        $cmd = "Import-Module '$opensshDir\OpenSSHTestHelper.psm1' -Force; Set-OpenSSHTestEnvironment -OpenSSHBinPath '$binPath'; Invoke-OpenSSHBashTests"
+        $sessions += Invoke-CoverageSession -Name 'bash' `
+            -Program $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $cmd) `
+            -SessionId $sessionId `
+            -OutputDirectory (Join-Path $OutputDirectory 'bash') -ToolPath $tool
+    }
+}
+finally {
+    # Restore the original binaries.
+    Invoke-CoverageUninstrument -BinaryPath $targets -ToolPath $tool
 }
 
 if (-not $sessions) {
@@ -146,9 +171,9 @@ if (-not $sessions) {
 
 # --- Native merge (authoritative combined report) --------------------------
 Write-Host "`n=== Merging coverage ==="
-$binaries = $sessions | ForEach-Object { $_.BinaryPath } | Where-Object { Test-Path $_ }
-$mergedCobertura = Merge-CoverageBinary -BinaryPath $binaries `
-    -OutputDirectory (Join-Path $OutputDirectory 'merged') -Html -OpenCppCoveragePath $openCpp
+$coverageFiles = $sessions | ForEach-Object { $_.CoveragePath } | Where-Object { $_ -and (Test-Path $_) }
+$mergedCobertura = Convert-CoverageReport -InputPath $coverageFiles `
+    -OutputPath (Join-Path $OutputDirectory 'merged\merged.cobertura.xml') -Format cobertura -ToolPath $tool
 Write-Host "Merged report   : $mergedCobertura"
 
 # --- Helper aggregation + overlap ------------------------------------------

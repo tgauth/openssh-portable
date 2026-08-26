@@ -4,7 +4,7 @@
 #
 # Unit tests for the pure helper functions in OpenSSHCodeCoverage.psm1.
 # These validate the aggregation / overlap logic without needing a build,
-# OpenCppCoverage, or any of the OpenSSH test suites to run.
+# Microsoft.CodeCoverage.Console, or any of the OpenSSH test suites to run.
 #
 # Run with Pester 5:  Invoke-Pester -Path .\OpenSSHCodeCoverage.tests.ps1
 #

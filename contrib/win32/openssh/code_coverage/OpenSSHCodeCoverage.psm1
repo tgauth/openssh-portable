@@ -12,21 +12,34 @@
       * Pester E2E  (regress\pesterTests\*.Tests.ps1)
       * bash tests  (regress\*.sh, driven by bash_tests_iterator.ps1)
 
-    Native C coverage on MSVC is collected with OpenCppCoverage
-    (https://github.com/OpenCppCoverage/OpenCppCoverage). OpenCppCoverage
-    attaches to a process *and its children* using the debug PDBs, so a single
-    coverage session captures every ssh.exe / sshd.exe / sftp.exe etc. that a
-    test spawns. Each suite is run under its own coverage session and exported
-    as a binary (.cov) file plus a Cobertura XML report. The binary files are
-    then merged natively by OpenCppCoverage, which unions per-line hit counts -
-    so a line exercised by two different suites is only counted once. That
-    natural de-duplication is what lets us aggregate the suites and account for
-    overlap.
+    Native C coverage on MSVC is collected with Microsoft.CodeCoverage.Console
+    (https://learn.microsoft.com/visualstudio/test/microsoft-code-coverage-console-tool),
+    the Microsoft-maintained coverage tool that ships with Visual Studio 2022
+    (17.3+, Enterprise edition provides native C/C++ support). Unlike a
+    debugger-attach tool, it uses *static instrumentation*: the OpenSSH binaries
+    are built with the /PROFILE linker switch (see the dedicated coverage build
+    job) and rewritten on disk by the `instrument` command, embedding a shared
+    session id.
+
+    Collection uses server mode. For each suite we start a background collector
+    (`collect --session-id <id> --server-mode`) and then run the suite. Every
+    instrumented OpenSSH process that executes while the collector owns the
+    session - including sshd.exe running as a Windows *service*, which is not a
+    child of our process - rendezvouses with the collector by session id. That
+    is why server mode is used rather than a simple child-process wrap: the
+    E2E/bash suites drive a real sshd service. `shutdown <id>` flushes each
+    suite's .coverage file, which we convert to Cobertura via `merge`.
+
+    The per-suite .coverage files are then merged (`merge ... -f cobertura`),
+    which unions per-line hit counts, so a line exercised by two different
+    suites is only counted once. That natural de-duplication is what lets us
+    aggregate the suites and account for overlap.
 
     This module intentionally separates *pure* functions (Cobertura parsing,
     line merging, overlap measurement, summary formatting) from the functions
-    that shell out to OpenCppCoverage / MSBuild. The pure functions carry the
-    aggregation logic and are covered by OpenSSHCodeCoverage.tests.ps1.
+    that shell out to Microsoft.CodeCoverage.Console / MSBuild. The pure
+    functions carry the aggregation logic and are covered by
+    OpenSSHCodeCoverage.tests.ps1.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -42,7 +55,7 @@ $script:RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..' '..' '
     repository-relative, forward-slash path.
 
     .DESCRIPTION
-    OpenCppCoverage records absolute paths for each source file. Those paths
+    The coverage tool records absolute paths for each source file. Those paths
     differ between machines (developer box vs. CI agent) and use backslashes.
     To merge reports produced on different machines - and to present readable
     results - we strip the repository root (or the well-known CI checkout
@@ -280,7 +293,8 @@ function Measure-CoverageOverlap {
 
     .DESCRIPTION
     Used to persist the helper-merged aggregate (independent of the native
-    OpenCppCoverage merge) so the numbers can be diffed / archived.
+    Microsoft.CodeCoverage.Console merge) so the numbers can be diffed /
+    archived.
 #>
 function New-MergedCoberturaReport {
     [CmdletBinding()]
@@ -426,48 +440,200 @@ function Format-CoverageSummaryMarkdown {
 
 #endregion Pure helpers
 
-#region OpenCppCoverage orchestration
+#region Microsoft.CodeCoverage.Console orchestration
+
+# Well-known OpenSSH executables that are built with /PROFILE and therefore can
+# be statically instrumented. unittest-*.exe are matched separately by wildcard.
+$script:OpenSSHCoverageExeNames = @(
+    'ssh.exe', 'sshd.exe', 'sshd-session.exe', 'sftp.exe', 'sftp-server.exe',
+    'scp.exe', 'ssh-add.exe', 'ssh-agent.exe', 'ssh-keygen.exe',
+    'ssh-keyscan.exe', 'ssh-shellhost.exe', 'ssh-sk-helper.exe',
+    'ssh-pkcs11-helper.exe'
+)
 
 <#
     .SYNOPSIS
-    Ensures OpenCppCoverage is installed and returns the path to its exe.
+    Locates Microsoft.CodeCoverage.Console.exe.
+
+    .DESCRIPTION
+    The tool ships with Visual Studio 2022 (17.3+) under
+    Common7\IDE\Extensions\Microsoft\CodeCoverage.Console. Native C/C++ coverage
+    requires the Enterprise edition. Resolution order: an explicit -Path, the
+    current PATH, vswhere-reported VS installations, then a scan of the standard
+    install roots.
 #>
-function Install-OpenCppCoverage {
+function Find-CodeCoverageConsole {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [switch] $Force
+        [string] $Path
     )
 
-    $existing = Get-Command 'OpenCppCoverage.exe' -ErrorAction SilentlyContinue
-    if ($existing -and -not $Force) {
-        return $existing.Source
+    if ($Path) {
+        if (Test-Path -LiteralPath $Path) { return (Resolve-Path -LiteralPath $Path).Path }
+        throw "Microsoft.CodeCoverage.Console.exe was not found at '$Path'."
     }
 
-    $defaultPath = Join-Path $env:ProgramFiles 'OpenCppCoverage\OpenCppCoverage.exe'
-    if ((Test-Path $defaultPath) -and -not $Force) {
-        return $defaultPath
+    $existing = Get-Command 'Microsoft.CodeCoverage.Console.exe' -ErrorAction SilentlyContinue
+    if ($existing) { return $existing.Source }
+
+    $relative = 'Common7\IDE\Extensions\Microsoft\CodeCoverage.Console\Microsoft.CodeCoverage.Console.exe'
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path $vswhere) {
+        $roots = & $vswhere -all -prerelease -property installationPath 2>$null
+        foreach ($root in $roots) {
+            if (-not $root) { continue }
+            $candidate = Join-Path $root $relative
+            if (Test-Path $candidate) { return (Resolve-Path -LiteralPath $candidate).Path }
+        }
     }
 
-    $choco = Get-Command 'choco.exe' -ErrorAction SilentlyContinue
-    if (-not $choco) {
-        throw 'OpenCppCoverage is not installed and Chocolatey is unavailable. Install OpenCppCoverage from https://github.com/OpenCppCoverage/OpenCppCoverage/releases and re-run.'
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if (-not $base) { continue }
+        $vsRoot = Join-Path $base 'Microsoft Visual Studio'
+        if (-not (Test-Path $vsRoot)) { continue }
+        $found = Get-ChildItem -Path $vsRoot -Recurse -Filter 'Microsoft.CodeCoverage.Console.exe' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($found) { return $found.FullName }
     }
 
-    Write-Verbose 'Installing OpenCppCoverage via Chocolatey...'
-    & $choco.Source install opencppcoverage -y --no-progress | Write-Verbose
-
-    $found = Get-Command 'OpenCppCoverage.exe' -ErrorAction SilentlyContinue
-    if ($found) { return $found.Source }
-    if (Test-Path $defaultPath) { return $defaultPath }
-
-    throw 'Failed to locate OpenCppCoverage after installation.'
+    throw @'
+Microsoft.CodeCoverage.Console.exe was not found. It ships with Visual Studio 2022 (17.3 or later); native C/C++ code coverage requires the Enterprise edition. Install the "Code coverage" component, or run on an agent image that includes VS Enterprise (the hosted windows-latest image does).
+'@
 }
 
 <#
     .SYNOPSIS
-    Runs an arbitrary command under OpenCppCoverage, exporting a binary (.cov)
-    and a Cobertura XML report scoped to the OpenSSH sources and modules.
+    Returns the OpenSSH binaries under a directory that should be instrumented.
+#>
+function Get-OpenSSHCoverageTarget {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)] [string] $BinaryDirectory
+    )
+
+    if (-not (Test-Path -LiteralPath $BinaryDirectory)) {
+        throw "Binary directory '$BinaryDirectory' does not exist."
+    }
+
+    $targets = New-Object System.Collections.Generic.List[string]
+    foreach ($name in $script:OpenSSHCoverageExeNames) {
+        $p = Join-Path $BinaryDirectory $name
+        if (Test-Path -LiteralPath $p) { [void] $targets.Add((Resolve-Path -LiteralPath $p).Path) }
+    }
+    Get-ChildItem -Path $BinaryDirectory -Filter 'unittest-*.exe' -Recurse -ErrorAction SilentlyContinue |
+        ForEach-Object { [void] $targets.Add($_.FullName) }
+
+    return $targets.ToArray()
+}
+
+<#
+    .SYNOPSIS
+    Copies the static_covrun*.dll runtime next to the instrumented binaries.
+
+    .DESCRIPTION
+    An instrumented native binary references static_covrun64.dll at load time.
+    The `collect`/`connect` commands add its directory to PATH automatically, but
+    the sshd *service* is launched by the Service Control Manager and does not
+    inherit that PATH, so the runtime must sit beside the instrumented binaries.
+#>
+function Copy-CoverageRuntime {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string] $ToolPath,
+        [Parameter(Mandatory = $true)] [string] $DestinationDirectory
+    )
+
+    $toolDir = Split-Path -Parent $ToolPath
+    $runtimes = Get-ChildItem -Path $toolDir -Recurse -Filter 'static_covrun*.dll' -ErrorAction SilentlyContinue
+    if (-not $runtimes) {
+        Write-Warning "No static_covrun*.dll found under '$toolDir'; instrumented service binaries may fail to load."
+        return
+    }
+    foreach ($rt in $runtimes) {
+        Copy-Item -LiteralPath $rt.FullName -Destination $DestinationDirectory -Force
+    }
+}
+
+<#
+    .SYNOPSIS
+    Statically instruments a set of native binaries with a shared session id.
+
+    .DESCRIPTION
+    Each binary is first restored (best-effort uninstrument) so the function is
+    idempotent across repeated CI steps that share an installed OpenSSH
+    directory, then instrumented in place. Requires the binaries to have been
+    linked with /PROFILE.
+#>
+function Invoke-CoverageInstrument {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string[]] $BinaryPath,
+        [Parameter(Mandatory = $true)] [string] $SessionId,
+        [string] $ToolPath
+    )
+
+    if (-not $ToolPath) { $ToolPath = Find-CodeCoverageConsole }
+    $instrumented = New-Object System.Collections.Generic.List[string]
+
+    foreach ($bin in $BinaryPath) {
+        if (-not (Test-Path -LiteralPath $bin)) {
+            Write-Warning "Instrument target '$bin' not found; skipping."
+            continue
+        }
+        # Restore first so re-running against an already-instrumented binary
+        # (e.g. Core step then Bash step) does not fail.
+        & $ToolPath uninstrument $bin --nologo 2>$null | Out-Null
+
+        & $ToolPath instrument $bin --session-id $SessionId --nologo | Write-Verbose
+        if ($LASTEXITCODE -ne 0) {
+            throw "Instrumenting '$bin' failed with exit code $LASTEXITCODE. Ensure it was linked with /PROFILE."
+        }
+        [void] $instrumented.Add($bin)
+    }
+
+    if ($instrumented.Count -eq 0) {
+        throw 'No binaries were instrumented; cannot collect coverage.'
+    }
+
+    # Drop the coverage runtime next to every directory that holds an
+    # instrumented binary.
+    $dirs = $instrumented | ForEach-Object { Split-Path -Parent $_ } | Sort-Object -Unique
+    foreach ($dir in $dirs) { Copy-CoverageRuntime -ToolPath $ToolPath -DestinationDirectory $dir }
+
+    return $instrumented.ToArray()
+}
+
+<#
+    .SYNOPSIS
+    Restores (uninstruments) a set of native binaries. Best-effort.
+#>
+function Invoke-CoverageUninstrument {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string[]] $BinaryPath,
+        [string] $ToolPath
+    )
+    if (-not $ToolPath) { $ToolPath = Find-CodeCoverageConsole }
+    foreach ($bin in $BinaryPath) {
+        if (-not (Test-Path -LiteralPath $bin)) { continue }
+        & $ToolPath uninstrument $bin --nologo 2>$null | Out-Null
+    }
+}
+
+<#
+    .SYNOPSIS
+    Runs a suite under a server-mode coverage collector and returns the
+    resulting .coverage plus a per-suite Cobertura report.
+
+    .DESCRIPTION
+    Starts `collect --session-id <id> --server-mode` as a background process so
+    it owns the session, runs the suite command, then `shutdown <id>` to flush
+    the .coverage file. Every instrumented OpenSSH process (including sshd.exe
+    started as a service, which is not our child) that executes during the
+    window rendezvouses with the collector by session id.
 #>
 function Invoke-CoverageSession {
     [CmdletBinding()]
@@ -475,95 +641,107 @@ function Invoke-CoverageSession {
         [Parameter(Mandatory = $true)] [string] $Name,
         [Parameter(Mandatory = $true)] [string] $Program,
         [string[]] $ArgumentList = @(),
+        [Parameter(Mandatory = $true)] [string] $SessionId,
         [Parameter(Mandatory = $true)] [string] $OutputDirectory,
-        [string] $SourceRoot = $script:RepositoryRoot,
-        [string] $ModuleFilter,
         [string] $WorkingDirectory,
-        [string] $OpenCppCoveragePath
+        [int] $CollectorReadySeconds = 5,
+        [string] $ToolPath
     )
 
-    if (-not $OpenCppCoveragePath) { $OpenCppCoveragePath = Install-OpenCppCoverage }
+    if (-not $ToolPath) { $ToolPath = Find-CodeCoverageConsole }
     $null = New-Item -ItemType Directory -Path $OutputDirectory -Force
 
-    $binaryOut = Join-Path $OutputDirectory "$Name.cov"
+    $coverageOut = Join-Path $OutputDirectory "$Name.coverage"
     $coberturaOut = Join-Path $OutputDirectory "$Name.cobertura.xml"
+    Remove-Item -LiteralPath $coverageOut -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $coberturaOut -Force -ErrorAction SilentlyContinue
 
-    $occArgs = @(
-        '--sources', $SourceRoot,
-        '--export_type', "binary:$binaryOut",
-        '--export_type', "cobertura:$coberturaOut",
-        '--cover_children',
-        '--quiet'
-    )
-    if ($ModuleFilter) { $occArgs += @('--modules', $ModuleFilter) }
-    if ($WorkingDirectory) { $occArgs += @('--working_dir', $WorkingDirectory) }
-    $occArgs += '--'
-    $occArgs += $Program
-    $occArgs += $ArgumentList
+    $collectorLog = Join-Path $OutputDirectory "$Name.collector.log"
+    $collector = Start-Process -FilePath $ToolPath -PassThru -NoNewWindow `
+        -RedirectStandardOutput $collectorLog `
+        -ArgumentList @(
+            'collect', '--session-id', $SessionId, '--server-mode',
+            '--output', $coverageOut, '--output-format', 'coverage', '--nologo'
+        )
 
-    Write-Verbose "OpenCppCoverage $($occArgs -join ' ')"
-    & $OpenCppCoveragePath @occArgs
-    $exit = $LASTEXITCODE
+    # Let the collector take ownership of the session before we run the suite.
+    Start-Sleep -Seconds $CollectorReadySeconds
+
+    $exit = $null
+    try {
+        if ($WorkingDirectory) { Push-Location $WorkingDirectory }
+        & $Program @ArgumentList
+        $exit = $LASTEXITCODE
+    }
+    finally {
+        if ($WorkingDirectory) { Pop-Location }
+        & $ToolPath shutdown $SessionId --nologo 2>$null | Write-Verbose
+    }
+
+    if ($collector -and -not $collector.HasExited) {
+        $null = $collector.WaitForExit(120000)
+    }
+
+    if (Test-Path -LiteralPath $coverageOut) {
+        Convert-CoverageReport -InputPath $coverageOut -OutputPath $coberturaOut -Format cobertura -ToolPath $ToolPath | Out-Null
+    }
+    else {
+        Write-Warning "Collector produced no coverage file for suite '$Name'. See $collectorLog."
+    }
 
     [pscustomobject]@{
-        Name         = $Name
-        ExitCode     = $exit
-        BinaryPath   = $binaryOut
+        Name          = $Name
+        ExitCode      = $exit
+        CoveragePath  = $coverageOut
         CoberturaPath = $coberturaOut
     }
 }
 
 <#
     .SYNOPSIS
-    Merges binary (.cov) exports natively with OpenCppCoverage, producing a
-    combined Cobertura XML and (optionally) an HTML report. This is the
-    authoritative merged report; the pure helpers produce the same numbers and
-    add the overlap breakdown.
+    Merges/converts one or more .coverage (or coverage XML) inputs into a single
+    report, using the tool's native `merge` command.
+
+    .DESCRIPTION
+    `merge` unions per-line hit counts across inputs, so merging every per-suite
+    .coverage yields the de-duplicated aggregate. Pass a single input to simply
+    convert it to another format. Supported -Format values: cobertura, xml,
+    coverage.
 #>
-function Merge-CoverageBinary {
+function Convert-CoverageReport {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
-        [Parameter(Mandatory = $true)] [string[]] $BinaryPath,
-        [Parameter(Mandatory = $true)] [string] $OutputDirectory,
-        [switch] $Html,
-        [string] $OpenCppCoveragePath
+        [Parameter(Mandatory = $true)] [string[]] $InputPath,
+        [Parameter(Mandatory = $true)] [string] $OutputPath,
+        [ValidateSet('cobertura', 'xml', 'coverage')]
+        [string] $Format = 'cobertura',
+        [string] $ToolPath
     )
 
-    if (-not $OpenCppCoveragePath) { $OpenCppCoveragePath = Install-OpenCppCoverage }
-    $null = New-Item -ItemType Directory -Path $OutputDirectory -Force
+    if (-not $ToolPath) { $ToolPath = Find-CodeCoverageConsole }
 
-    $coberturaOut = Join-Path $OutputDirectory 'merged.cobertura.xml'
-    Remove-Item -LiteralPath $coberturaOut -Force -ErrorAction SilentlyContinue
+    $inputs = @($InputPath | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    if (-not $inputs) { throw 'No coverage inputs found to merge/convert.' }
 
-    $occArgs = @()
-    foreach ($bin in $BinaryPath) {
-        if (Test-Path $bin) { $occArgs += @('--input_coverage', $bin) }
-    }
-    if (-not $occArgs) { throw 'No binary coverage inputs found to merge.' }
+    $outDir = Split-Path -Parent $OutputPath
+    if ($outDir) { $null = New-Item -ItemType Directory -Path $outDir -Force }
+    Remove-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue
 
-    $occArgs += @('--export_type', "cobertura:$coberturaOut")
-    if ($Html) {
-        $htmlOut = Join-Path $OutputDirectory 'html'
-        # OpenCppCoverage refuses to write into an existing HTML export
-        # directory, so clear any report from a previous run first.
-        Remove-Item -LiteralPath $htmlOut -Recurse -Force -ErrorAction SilentlyContinue
-        $occArgs += @('--export_type', "html:$htmlOut")
-    }
-    $occArgs += '--quiet'
-
-    Write-Verbose "OpenCppCoverage $($occArgs -join ' ')"
-    & $OpenCppCoveragePath @occArgs | Write-Verbose
+    $mergeArgs = @('merge') + $inputs + @('--output', $OutputPath, '--output-format', $Format, '--nologo')
+    Write-Verbose "Microsoft.CodeCoverage.Console $($mergeArgs -join ' ')"
+    & $ToolPath @mergeArgs | Write-Verbose
     if ($LASTEXITCODE -ne 0) {
-        throw "OpenCppCoverage merge failed with exit code $LASTEXITCODE."
+        throw "Coverage merge/convert failed with exit code $LASTEXITCODE."
     }
-    if (-not (Test-Path -LiteralPath $coberturaOut)) {
-        throw "OpenCppCoverage merge did not produce $coberturaOut."
+    if (-not (Test-Path -LiteralPath $OutputPath)) {
+        throw "Coverage merge/convert did not produce '$OutputPath'."
     }
 
-    return $coberturaOut
+    return $OutputPath
 }
 
-#endregion OpenCppCoverage orchestration
+#endregion Microsoft.CodeCoverage.Console orchestration
 
 Export-ModuleMember -Function @(
     'ConvertTo-NormalizedCoverageSourcePath',
@@ -574,7 +752,11 @@ Export-ModuleMember -Function @(
     'New-MergedCoberturaReport',
     'Get-CoverageSummary',
     'Format-CoverageSummaryMarkdown',
-    'Install-OpenCppCoverage',
+    'Find-CodeCoverageConsole',
+    'Get-OpenSSHCoverageTarget',
+    'Copy-CoverageRuntime',
+    'Invoke-CoverageInstrument',
+    'Invoke-CoverageUninstrument',
     'Invoke-CoverageSession',
-    'Merge-CoverageBinary'
+    'Convert-CoverageReport'
 )
