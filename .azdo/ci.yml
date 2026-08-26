@@ -164,6 +164,99 @@ stages:
       displayName: Clean up OpenSSH test environment
       condition: always()
 
+  - job: CodeCoverageWin32OpenSSH
+    pool:
+      vmImage: windows-latest
+    displayName: Win32-OpenSSH Code Coverage
+    # Coverage is informational and must never gate a merge while it stabilizes.
+    continueOnError: true
+    # Only run on pull requests. On branch builds CodeQL is enabled and the added
+    # coverage instrumentation overhead risks pushing the agent past its ~60 min timeout.
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    variables:
+      coverageDir: '$(Build.SourcesDirectory)/CodeCoverage'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download build artifacts (with symbols)'
+      inputs:
+        buildType: current
+        downloadType: single
+        artifactName: Win32-OpenSSH-x64
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download unit test artifacts'
+      inputs:
+        buildType: current
+        downloadType: single
+        artifactName: UnitTests-x64
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download bash test config file artifact'
+      inputs:
+        buildType: current
+        downloadType: single
+        artifactName: ConfigFile-x64
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    - pwsh: |
+        Import-Module -Name "$(Build.SourcesDirectory)/contrib/win32/openssh/AzDOBuildTools" -Force
+        # The build package copies .pdb symbols alongside the binaries, which
+        # OpenCppCoverage needs to map executed instructions back to source.
+        Install-OpenSSH -SourceDir "$(System.ArtifactsDirectory)/Win32-OpenSSH-x64/x64/Release" -OpenSSHDir "$env:SystemDrive/OpenSSH" -Verbose
+        Install-UnitTests -SourceDir "$(System.ArtifactsDirectory)/UnitTests-x64/x64/Release" -OpenSSHDir "$env:SystemDrive/OpenSSH" -Verbose
+      displayName: Install Win32-OpenSSH and unit tests
+
+    - pwsh: |
+        $configFileSrc = "$(System.ArtifactsDirectory)/ConfigFile-x64/config.h"
+        Copy-Item -Path $configFileSrc -Dest "$(Build.SourcesDirectory)" -Force
+      displayName: Copy config file artifact for bash tests
+
+    - pwsh: |
+        & "$(Build.SourcesDirectory)/contrib/win32/openssh/code_coverage/Invoke-AzDOCodeCoverage.ps1" `
+          -Suite Core `
+          -OpenSSHBinPath "$env:SystemDrive/OpenSSH" `
+          -SourceRoot "$(Build.SourcesDirectory)" `
+          -OutputDirectory "$(coverageDir)" -Verbose
+      displayName: Collect coverage - core tests (setup + unit + E2E)
+
+    - pwsh: |
+        & "$(Build.SourcesDirectory)/contrib/win32/openssh/code_coverage/Invoke-AzDOCodeCoverage.ps1" `
+          -Suite Bash `
+          -OpenSSHBinPath "$env:SystemDrive/OpenSSH" `
+          -SourceRoot "$(Build.SourcesDirectory)" `
+          -OutputDirectory "$(coverageDir)" -Verbose
+      displayName: Collect coverage - bash tests
+
+    - pwsh: |
+        $summary = Join-Path "$(coverageDir)" 'coverage-summary.md'
+        if (Test-Path $summary) { Get-Content -Raw $summary }
+      displayName: Print coverage summary
+      condition: always()
+
+    - task: PublishCodeCoverageResults@2
+      displayName: Publish code coverage results
+      condition: always()
+      inputs:
+        summaryFileLocation: '$(coverageDir)/merged/merged.cobertura.xml'
+        pathToSources: '$(Build.SourcesDirectory)'
+
+    - pwsh: |
+        if (Test-Path "$(coverageDir)")
+        {
+          $artifactName = 'Win32-OpenSSH-CodeCoverage'
+          Write-Host "##vso[artifact.upload containerfolder=$artifactName;artifactname=$artifactName;]$(coverageDir)"
+        }
+      displayName: Upload code coverage artifacts
+      condition: always()
+
+    - pwsh: |
+        Import-Module -Name "$(Build.SourcesDirectory)/contrib/win32/openssh/AzDOBuildTools" -Force
+        Clear-TestEnvironmentSetup
+      displayName: Clean up OpenSSH test environment
+      condition: always()
+
   - job: TestPkgWin32OpenSSHBash
     pool:
       vmImage: windows-latest
