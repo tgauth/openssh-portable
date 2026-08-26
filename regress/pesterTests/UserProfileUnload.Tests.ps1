@@ -43,18 +43,24 @@ Describe "User profile hive is unloaded after a session (issue #1694)" -Tags "CI
     }
 
     It "loads the user hive during a session and unloads it after the child exits" -skip:$skip {
-        # Start a background session that stays alive so the loaded hive is observable.
-        $sshProc = Start-Process -FilePath ssh -ArgumentList "-p $port -o StrictHostKeyChecking=no $user@$server powershell -NoProfile -Command Start-Sleep -Seconds 6" -PassThru
-        Start-Sleep -Seconds 2
+        # Keep a session alive in a background job so the loaded hive is observable.
+        # A job has no console, so ssh uses SSH_ASKPASS for the password.
+        $job = Start-Job -ScriptBlock {
+            param($port, $server, $user)
+            ssh -p $port -o "StrictHostKeyChecking=no" "$user@$server" "powershell -NoProfile -Command Start-Sleep -Seconds 8"
+        } -ArgumentList $port, $server, $user
 
-        # Hive should be loaded while the session is active (guards against a vacuous pass).
-        Test-Path "Registry::HKEY_USERS\$userSid" | Should Be $true
+        # Allow authentication and profile load to complete. Enumerate HKEY_USERS via
+        # reg.exe (needs only enumerate rights, unlike opening the ACL'd hive key).
+        Start-Sleep -Seconds 3
+        [bool]((reg query HKU 2>$null) -match [regex]::Escape($userSid)) | Should Be $true
 
-        if ($sshProc -and !$sshProc.HasExited) { $sshProc | Stop-Process -Force }
+        Stop-Job $job
+        Remove-Job $job -Force
 
         # The session child is reaped asynchronously; allow the unload to complete.
         Start-Sleep -Seconds 2
 
-        Test-Path "Registry::HKEY_USERS\$userSid" | Should Be $false
+        [bool]((reg query HKU 2>$null) -match [regex]::Escape($userSid)) | Should Be $false
     }
 }
