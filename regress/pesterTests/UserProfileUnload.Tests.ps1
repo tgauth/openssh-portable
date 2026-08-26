@@ -36,26 +36,25 @@ Describe "User profile hive is unloaded after a session (issue #1694)" -Tags "CI
         }
 
         Add-PasswordSetting -Pass $password
-
-        function Test-HiveLoaded { param([string]$Sid) Test-Path "Registry::HKEY_USERS\$Sid" }
     }
 
     AfterAll {
         Remove-PasswordSetting
     }
 
-    It "unloads the user hive once the session child exits" -skip:$skip {
-        $o = ssh -p $port -o "StrictHostKeyChecking=no" "$user@$server" "cmd /c echo profileunloadtest"
-        $LASTEXITCODE | Should Be 0
-        $o | Should Match "profileunloadtest"
+    It "loads the user hive during a session and unloads it after the child exits" -skip:$skip {
+        # Start a background session that stays alive so the loaded hive is observable.
+        $sshProc = Start-Process -FilePath ssh -ArgumentList "-p $port -o StrictHostKeyChecking=no $user@$server powershell -NoProfile -Command Start-Sleep -Seconds 6" -PassThru
+        Start-Sleep -Seconds 2
 
-        # the session child is reaped asynchronously; give it a moment to unload
-        $loaded = $true
-        for ($i = 0; $i -lt 40; $i++) {
-            if (-not (Test-HiveLoaded -Sid $userSid)) { $loaded = $false; break }
-            Start-Sleep -Milliseconds 500
-        }
+        # Hive should be loaded while the session is active (guards against a vacuous pass).
+        Test-Path "Registry::HKEY_USERS\$userSid" | Should Be $true
 
-        $loaded | Should Be $false
+        if ($sshProc -and !$sshProc.HasExited) { $sshProc | Stop-Process -Force }
+
+        # The session child is reaped asynchronously; allow the unload to complete.
+        Start-Sleep -Seconds 2
+
+        Test-Path "Registry::HKEY_USERS\$userSid" | Should Be $false
     }
 }
