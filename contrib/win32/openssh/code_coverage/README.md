@@ -11,7 +11,6 @@ de-duplicated number that accounts for overlap between the suites.
 |------|---------|
 | `OpenSSHCodeCoverage.psm1` | Module. Pure aggregation/overlap helpers **and** Microsoft.CodeCoverage.Console orchestration. |
 | `OpenSSHCodeCoverage.tests.ps1` | Pester 5 tests for the pure helpers (no build required). |
-| `Invoke-OpenSSHCodeCoverage.ps1` | Local end-to-end driver: build → run suites under coverage → merge → summarize. |
 | `Invoke-AzDOCodeCoverage.ps1` | CI entry point: run one suite (Core/Bash) under coverage against an installed OpenSSH dir, then merge. |
 
 All files live in `contrib\win32\openssh\code_coverage\`.
@@ -54,31 +53,29 @@ OverlapLines         = SumCoveredLines - CombinedCoveredLines
 
 ## Usage
 
-Requires: Visual Studio 2022 **Enterprise** (17.3+) — provides both the build
-tools and `Microsoft.CodeCoverage.Console.exe` for native coverage — and the
-test-suite prerequisites (Cygwin for the bash suite, Pester for E2E — the
-existing helpers install these). The local driver builds `Debug` with
-`/PROFILE` automatically (via the linker `LINK` env var) so the binaries can be
-instrumented.
+Coverage normally runs in CI (see below). To reproduce locally you need
+Visual Studio 2022 **Enterprise** (17.3+) — for both the build tools and
+`Microsoft.CodeCoverage.Console.exe` — plus the test-suite prerequisites
+(Cygwin for the bash suite, Pester for E2E; the existing helpers install these).
+
+First build and install the solution with `/PROFILE` so the binaries can be
+instrumented (the CI build job does this by injecting `/PROFILE` via the linker
+`LINK` env var), then point `Invoke-AzDOCodeCoverage.ps1` at the installed
+directory. Call it once per suite into the same `-OutputDirectory`; the final
+call produces the aggregate report.
 
 ```powershell
 cd contrib\win32\openssh\code_coverage
 
-# All suites, Debug build (recommended for accurate line mapping):
-.\Invoke-OpenSSHCodeCoverage.ps1 -Configuration Debug
-
-# A single suite against an already-built tree:
-.\Invoke-OpenSSHCodeCoverage.ps1 -Configuration Debug -Suite Unit -SkipBuild
-
-# Custom output location:
-.\Invoke-OpenSSHCodeCoverage.ps1 -Configuration Debug -OutputDirectory C:\cov
+# Core = setup + unit + E2E, then the bash suite, into one output dir:
+.\Invoke-AzDOCodeCoverage.ps1 -Suite Core -OpenSSHBinPath C:\OpenSSH -OutputDirectory C:\cov
+.\Invoke-AzDOCodeCoverage.ps1 -Suite Bash -OpenSSHBinPath C:\OpenSSH -OutputDirectory C:\cov
 ```
 
-### Output artifacts (under `-OutputDirectory`, default `.\coverage`)
+### Output artifacts (under `-OutputDirectory`)
 
 ```
-unit\unit.coverage,  unit\unit.cobertura.xml       per-suite (unit tests)
-e2e\e2e.coverage,    e2e\e2e.cobertura.xml         per-suite (Pester E2E)
+core\core.coverage,  core\core.cobertura.xml       per-suite (setup + unit + E2E)
 bash\bash.coverage,  bash\bash.cobertura.xml       per-suite (bash tests)
 merged\merged.cobertura.xml                        combined, de-duplicated (native merge)
 coverage-summary.json                              machine-readable summary
@@ -90,15 +87,14 @@ Example `coverage-summary.md`:
 ```
 | Suite | Covered | Total | Line % |
 |-------|--------:|------:|-------:|
-| unit  |    4210 | 20144 |  20.9% |
-| e2e   |    9633 | 20144 |  47.8% |
+| core  |    9633 | 20144 |  47.8% |
 | bash  |   11002 | 20144 |  54.6% |
 | **Combined (deduped)** | **13120** | **20144** | **65.1%** |
 
 ## Overlap between suites
-- Sum of per-suite covered lines: 24845
+- Sum of per-suite covered lines: 20635
 - Combined (de-duplicated) covered lines: 13120
-- Overlapping covered lines: 11725 (47.19% of the sum)
+- Overlapping covered lines: 7515 (36.42% of the sum)
 ```
 
 ## Validating the helpers
@@ -137,7 +133,7 @@ The suites run the exact CI entry points (`Invoke-OpenSSHTests`,
 - A **Debug** build is used for coverage so line mapping is accurate; optimized
   Release builds can fold/reorder/strip lines and understate coverage.
 - Native C/C++ coverage requires **Visual Studio 2022 Enterprise** and binaries
-  linked with `/PROFILE`; the coverage build job and local driver handle both.
+  linked with `/PROFILE`; the coverage build job handles both.
 - Coverage is scoped to OpenSSH source files at report time (paths are
   normalized to the repository root), so third-party/system code is excluded.
 - The tooling reuses the existing suite entry points, so it measures exactly what
