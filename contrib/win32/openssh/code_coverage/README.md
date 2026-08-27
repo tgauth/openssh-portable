@@ -11,7 +11,8 @@ de-duplicated number that accounts for overlap between the suites.
 |------|---------|
 | `OpenSSHCodeCoverage.psm1` | Module. Pure aggregation/overlap helpers **and** Microsoft.CodeCoverage.Console orchestration. |
 | `OpenSSHCodeCoverage.tests.ps1` | Pester 5 tests for the pure helpers (no build required). |
-| `Invoke-AzDOCodeCoverage.ps1` | CI entry point: run one suite (Core/Bash) under coverage against an installed OpenSSH dir, then merge. |
+| `Invoke-AzDOCodeCoverage.ps1` | Per-suite CI entry point: run one suite (Core/Bash) under coverage against an installed OpenSSH dir, producing a per-suite report. |
+| `Invoke-AzDOCoverageAggregate.ps1` | CI aggregation entry point: merge the per-suite artifacts from the Core and Bash jobs into the combined, de-duplicated report + summaries. |
 
 All files live in `contrib\win32\openssh\code_coverage\`.
 
@@ -61,16 +62,26 @@ Visual Studio 2022 **Enterprise** (17.3+) — for both the build tools and
 First build and install the solution with `/PROFILE` so the binaries can be
 instrumented (the CI build job does this by injecting `/PROFILE` via the linker
 `LINK` env var), then point `Invoke-AzDOCodeCoverage.ps1` at the installed
-directory. Call it once per suite into the same `-OutputDirectory`; the final
-call produces the aggregate report.
+directory. The core flow ends by uninstalling OpenSSH, so re-install before the
+bash suite (in CI each suite runs on its own agent, so this is unnecessary
+there):
 
 ```powershell
 cd contrib\win32\openssh\code_coverage
 
-# Core = setup + unit + E2E, then the bash suite, into one output dir:
-.\Invoke-AzDOCodeCoverage.ps1 -Suite Core -OpenSSHBinPath C:\OpenSSH -OutputDirectory C:\cov
-.\Invoke-AzDOCodeCoverage.ps1 -Suite Bash -OpenSSHBinPath C:\OpenSSH -OutputDirectory C:\cov
+# Core = setup + unit + E2E, into one output dir:
+.\Invoke-AzDOCodeCoverage.ps1 -Suite Core -OpenSSHBinPath C:\OpenSSH -OutputDirectory C:\cov -SkipAggregation
+
+# Re-install OpenSSH (the core flow's uninstall test removed it), then bash:
+Install-OpenSSH -SourceDir <coverage-build> -OpenSSHDir C:\OpenSSH
+.\Invoke-AzDOCodeCoverage.ps1 -Suite Bash -OpenSSHBinPath C:\OpenSSH -OutputDirectory C:\cov -SkipAggregation
+
+# Combine the per-suite reports into the de-duplicated aggregate:
+.\Invoke-AzDOCoverageAggregate.ps1 -InputDirectory C:\cov
 ```
+
+Omit `-SkipAggregation` on a single-suite run to get the merge/summary for just
+that suite.
 
 ### Output artifacts (under `-OutputDirectory`)
 
@@ -108,22 +119,29 @@ Invoke-Pester -Path .\OpenSSHCodeCoverage.tests.ps1 -Output Detailed
 
 ## Continuous integration (Azure DevOps)
 
-Coverage is wired into `.azdo/ci.yml` as two dedicated, **PR-only, non-gating**
-jobs (they never run on branch builds, where CodeQL already competes for the
-~60 min agent budget, and `continueOnError: true` so they never block a merge):
+Coverage is wired into `.azdo/ci.yml` as dedicated, **PR-only, non-gating** jobs
+(they never run on branch builds, where CodeQL already competes for the ~60 min
+agent budget, and `continueOnError: true` so they never block a merge):
 
 1. **Build Coverage Package (x64 Debug + /PROFILE)** — a Build-stage job that
    builds the solution `Debug|x64` with `/PROFILE` injected via the linker
    `LINK` env var (no `.vcxproj` edits), publishing `Win32-OpenSSH-Coverage-x64`
    and `UnitTests-Coverage-x64` (binaries + PDBs). It runs in parallel with the
-   normal Release build, so it does not eat into the coverage job's budget.
-2. **Win32-OpenSSH Code Coverage** — a Test-stage job that installs the coverage
-   build to `C:\OpenSSH`, then runs `Invoke-AzDOCodeCoverage.ps1 -Suite Core`
-   (setup + unit + E2E) and `-Suite Bash`. Each invocation instruments the
-   installed binaries, runs the suite under a server-mode collector, converts to
-   Cobertura, and aggregates every per-suite report. It publishes the merged
-   Cobertura via `PublishCodeCoverageResults@2` and uploads the full
-   `Win32-OpenSSH-CodeCoverage` artifact (per-suite reports + summaries).
+   normal Release build.
+2. **Win32-OpenSSH Code Coverage (Core)** and **(Bash)** — two Test-stage jobs
+   that each install the coverage build to `C:\OpenSSH` on their own agent and
+   run `Invoke-AzDOCodeCoverage.ps1 -Suite Core` (setup + unit + E2E) or
+   `-Suite Bash` with `-SkipAggregation`. Running the suites in separate jobs
+   (instead of sequentially in one job) gives each a clean install with no
+   file-lock or service-state contention, and lets them run in parallel. Each
+   publishes its per-suite report as `Win32-OpenSSH-CodeCoverage-Core` /
+   `-Bash`.
+3. **Win32-OpenSSH Code Coverage (Aggregate)** — a Test-stage job that depends on
+   the two suite jobs, downloads their per-suite artifacts, and runs
+   `Invoke-AzDOCoverageAggregate.ps1` to produce the merged, de-duplicated
+   report. It publishes the merged Cobertura via `PublishCodeCoverageResults@2`
+   and uploads the full `Win32-OpenSSH-CodeCoverage` artifact (per-suite reports
+   + summaries).
 
 The suites run the exact CI entry points (`Invoke-OpenSSHTests`,
 `Invoke-OpenSSHBashTestsOnly`), so coverage reflects what CI already exercises.

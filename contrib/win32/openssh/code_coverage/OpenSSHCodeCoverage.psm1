@@ -789,6 +789,106 @@ function Convert-CoverageReport {
     return $OutputPath
 }
 
+<#
+    .SYNOPSIS
+    Aggregates every per-suite coverage report found under a directory into a
+    single de-duplicated report plus per-suite/overlap summaries.
+
+    .DESCRIPTION
+    Scans -OutputDirectory (recursively) for per-suite *.cobertura.xml reports
+    (ignoring anything under a 'merged' folder) and *.coverage files. It:
+      - imports each per-suite Cobertura report and computes per-suite stats,
+      - merges the maps and measures cross-suite overlap (pure helpers),
+      - natively merges the .coverage files into merged\merged.cobertura.xml
+        (unioning per-line hits, so an overlapping line counts once); if the tool
+        or .coverage files are unavailable it falls back to the helper-merged
+        Cobertura so merged.cobertura.xml always exists for publishing,
+      - writes coverage-summary.json / coverage-summary.md.
+
+    This is invoked either inline after a single-suite collection, or by the CI
+    aggregation job over the per-suite artifacts downloaded from separate
+    Core/Bash jobs.
+#>
+function Invoke-CoverageAggregation {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)] [string] $OutputDirectory,
+        [Parameter(Mandatory = $true)] [string] $SourceRoot,
+        [string] $ToolPath
+    )
+
+    $coberturaReports = Get-ChildItem -Path $OutputDirectory -Filter '*.cobertura.xml' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '[\\/]merged[\\/]' }
+
+    if (-not $coberturaReports) {
+        Write-Warning 'No per-suite Cobertura reports were found; skipping aggregation.'
+        return $null
+    }
+
+    $suiteMaps = @()
+    $suiteStats = @()
+    foreach ($report in $coberturaReports) {
+        $suiteName = [System.IO.Path]::GetFileNameWithoutExtension($report.Name) -replace '\.cobertura$', ''
+        $map = Import-CoberturaCoverage -Path $report.FullName -RepositoryRoot $SourceRoot
+        $suiteMaps += , $map
+        $suiteStats += Get-CoverageStatistic -CoverageMap $map -Name $suiteName
+    }
+
+    $mergedMap = Merge-CoverageData -CoverageMap $suiteMaps
+    $combinedStat = Get-CoverageStatistic -CoverageMap $mergedMap -Name 'combined'
+    $overlap = Measure-CoverageOverlap -CoverageMap $suiteMaps
+
+    $mergedDir = Join-Path $OutputDirectory 'merged'
+    # Regenerate the merge each run so the report stays complete; clear stale output first.
+    Remove-Item -LiteralPath $mergedDir -Recurse -Force -ErrorAction SilentlyContinue
+    $null = New-Item -ItemType Directory -Path $mergedDir -Force
+
+    $nativeMerged = Join-Path $mergedDir 'merged.cobertura.xml'
+    $helperMerged = Join-Path $mergedDir 'merged-helper.cobertura.xml'
+
+    # Authoritative native merge of every per-suite .coverage file (best-effort).
+    if (-not $ToolPath) {
+        try { $ToolPath = Find-CodeCoverageConsole } catch { $ToolPath = $null }
+    }
+    $coverageFiles = Get-ChildItem -Path $OutputDirectory -Filter '*.coverage' -Recurse -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName }
+    $nativeMergeOk = $false
+    if ($ToolPath -and $coverageFiles) {
+        try {
+            Convert-CoverageReport -InputPath $coverageFiles -OutputPath $nativeMerged -Format cobertura -ToolPath $ToolPath | Out-Null
+            $nativeMergeOk = Test-Path -LiteralPath $nativeMerged
+        }
+        catch {
+            Write-Warning "Native coverage merge failed: $($_.Exception.Message)"
+        }
+    }
+
+    # Helper-merged Cobertura (independent of the native merge) + summaries.
+    New-MergedCoberturaReport -CoverageMap $mergedMap -OutputPath $helperMerged | Out-Null
+
+    # Guarantee merged.cobertura.xml exists for the publish step even when the
+    # native merge was skipped (no tool / no .coverage) or failed.
+    if (-not $nativeMergeOk) {
+        Write-Warning 'Using helper-merged Cobertura as merged.cobertura.xml (native merge unavailable).'
+        Copy-Item -LiteralPath $helperMerged -Destination $nativeMerged -Force
+    }
+
+    $summary = Get-CoverageSummary -SuiteStatistic $suiteStats -CombinedStatistic $combinedStat -Overlap $overlap
+    $summaryJson = Join-Path $OutputDirectory 'coverage-summary.json'
+    $summaryMd = Join-Path $OutputDirectory 'coverage-summary.md'
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -Path $summaryJson
+    $markdown = Format-CoverageSummaryMarkdown -Summary $summary
+    $markdown | Set-Content -Path $summaryMd
+    Write-Host "`n$markdown"
+
+    return [pscustomobject]@{
+        MergedReport = $nativeMerged
+        SummaryJson  = $summaryJson
+        SummaryMd    = $summaryMd
+    }
+}
+
 #endregion Microsoft.CodeCoverage.Console orchestration
 
 Export-ModuleMember -Function @(
@@ -806,5 +906,6 @@ Export-ModuleMember -Function @(
     'Invoke-CoverageInstrument',
     'Invoke-CoverageUninstrument',
     'Invoke-CoverageSession',
-    'Convert-CoverageReport'
+    'Convert-CoverageReport',
+    'Invoke-CoverageAggregation'
 )

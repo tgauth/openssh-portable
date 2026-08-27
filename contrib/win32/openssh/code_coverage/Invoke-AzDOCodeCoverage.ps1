@@ -16,15 +16,15 @@
     runs while a background server-mode collector owns that session. This
     captures every instrumented OpenSSH process - including sshd.exe running as a
     Windows service, which is not a child of this script. `shutdown` flushes a
-    per-suite .coverage file that is converted to Cobertura; every per-suite
-    report found under -OutputDirectory is then aggregated into a combined,
-    de-duplicated report plus per-suite/overlap summaries.
+    per-suite .coverage file that is converted to Cobertura.
 
-    Because the aggregation scans -OutputDirectory each time, the script is
-    idempotent: call it once per suite (Core, then Bash) into the same
-    -OutputDirectory and the final call produces the aggregate report. The
-    instrument step restores (uninstruments) each binary first, so sharing an
-    installed directory across the two invocations is safe.
+    By default the script then aggregates every per-suite report found under
+    -OutputDirectory into a combined, de-duplicated report plus per-suite/overlap
+    summaries (useful for local, single-agent runs). In CI the Core and Bash
+    suites run in separate jobs (each on its own agent with a clean install, so
+    there is no cross-suite file-lock or service-state contention); those jobs
+    pass -SkipAggregation and publish their per-suite artifact, and a dependent
+    job runs Invoke-AzDOCoverageAggregate.ps1 to combine them.
 
     This script assumes the solution is already built (with /PROFILE) and
     installed. It never builds.
@@ -42,6 +42,10 @@
     .PARAMETER OutputDirectory
     Where per-suite and merged coverage artifacts are written.
 
+    .PARAMETER SkipAggregation
+    Produce only this suite's per-suite .coverage + Cobertura report and skip the
+    combined merge/summary (the dedicated CI aggregation job does that).
+
     .EXAMPLE
     .\Invoke-AzDOCodeCoverage.ps1 -Suite Core -OutputDirectory C:\cov
     .\Invoke-AzDOCodeCoverage.ps1 -Suite Bash -OutputDirectory C:\cov
@@ -57,7 +61,12 @@ param(
     [string] $SourceRoot,
 
     [Parameter(Mandatory = $true)]
-    [string] $OutputDirectory
+    [string] $OutputDirectory,
+
+    # Skip the aggregation/merge/summary pass; only produce this suite's per-suite
+    # .coverage + Cobertura report. Used by the split CI jobs, where a dedicated
+    # dependent job aggregates the per-suite artifacts from Core and Bash.
+    [switch] $SkipAggregation
 )
 
 $ErrorActionPreference = 'Stop'
@@ -116,64 +125,10 @@ finally {
     Invoke-CoverageUninstrument -BinaryPath $targets -ToolPath $tool
 }
 
-# --- Aggregate every per-suite report collected so far --------------------
-$coberturaReports = Get-ChildItem -Path $OutputDirectory -Filter '*.cobertura.xml' -Recurse |
-    Where-Object { $_.FullName -notmatch '\\merged\\' }
-
-if (-not $coberturaReports) {
-    Write-Warning 'No per-suite Cobertura reports were produced; skipping aggregation.'
+if ($SkipAggregation) {
+    Write-Host "SkipAggregation set; produced per-suite report only under $OutputDirectory."
     return
 }
 
-$suiteMaps = @()
-$suiteStats = @()
-foreach ($report in $coberturaReports) {
-    $suiteName = [System.IO.Path]::GetFileNameWithoutExtension($report.Name) -replace '\.cobertura$', ''
-    $map = Import-CoberturaCoverage -Path $report.FullName -RepositoryRoot $SourceRoot
-    $suiteMaps += , $map
-    $suiteStats += Get-CoverageStatistic -CoverageMap $map -Name $suiteName
-}
-
-$mergedMap = Merge-CoverageData -CoverageMap $suiteMaps
-$combinedStat = Get-CoverageStatistic -CoverageMap $mergedMap -Name 'combined'
-$overlap = Measure-CoverageOverlap -CoverageMap $suiteMaps
-
-$mergedDir = Join-Path $OutputDirectory 'merged'
-# Regenerate the merge from every .coverage found each run so the report stays
-# complete as suites accumulate; clear first to avoid stale outputs.
-Remove-Item -LiteralPath $mergedDir -Recurse -Force -ErrorAction SilentlyContinue
-$null = New-Item -ItemType Directory -Path $mergedDir -Force
-
-$nativeMerged = Join-Path $mergedDir 'merged.cobertura.xml'
-$helperMerged = Join-Path $mergedDir 'merged-helper.cobertura.xml'
-
-# Authoritative native merge of every per-suite .coverage file.
-$coverageFiles = Get-ChildItem -Path $OutputDirectory -Filter '*.coverage' -Recurse | ForEach-Object { $_.FullName }
-$nativeMergeOk = $false
-if ($coverageFiles) {
-    try {
-        Convert-CoverageReport -InputPath $coverageFiles -OutputPath $nativeMerged -Format cobertura -ToolPath $tool | Out-Null
-        $nativeMergeOk = Test-Path -LiteralPath $nativeMerged
-    }
-    catch {
-        Write-Warning "Native coverage merge failed: $($_.Exception.Message)"
-    }
-}
-
-# Helper-merged Cobertura (independent of the native merge) + summaries.
-New-MergedCoberturaReport -CoverageMap $mergedMap -OutputPath $helperMerged | Out-Null
-
-# Guarantee merged.cobertura.xml exists for the publish step even when the
-# native merge was skipped (no .coverage) or failed, by falling back to the
-# helper.
-if (-not $nativeMergeOk) {
-    Write-Warning 'Using helper-merged Cobertura as merged.cobertura.xml (native merge unavailable).'
-    Copy-Item -LiteralPath $helperMerged -Destination $nativeMerged -Force
-}
-
-$summary = Get-CoverageSummary -SuiteStatistic $suiteStats -CombinedStatistic $combinedStat -Overlap $overlap
-$summary | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $OutputDirectory 'coverage-summary.json')
-
-$markdown = Format-CoverageSummaryMarkdown -Summary $summary
-$markdown | Set-Content -Path (Join-Path $OutputDirectory 'coverage-summary.md')
-Write-Host "`n$markdown"
+# Aggregate every per-suite report collected so far (single-job / local usage).
+Invoke-CoverageAggregation -OutputDirectory $OutputDirectory -SourceRoot $SourceRoot -ToolPath $tool | Out-Null
