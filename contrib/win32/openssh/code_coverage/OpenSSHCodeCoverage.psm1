@@ -83,7 +83,12 @@ function ConvertTo-NormalizedCoverageSourcePath {
     # Strip a provided repository root if the path lives underneath it.
     if (-not [string]::IsNullOrWhiteSpace($RepositoryRoot)) {
         $root = ($RepositoryRoot -replace '\\', '/').TrimEnd('/')
-        if ($root -and $normalized.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        # Only strip when $root is an actual directory-boundary prefix (followed
+        # by '/' or the whole string), so a sibling like 'C:/repository' is not
+        # mistaken for a path under root 'C:/repo'.
+        if ($root -and $normalized.Length -ge $root.Length -and
+            $normalized.Substring(0, $root.Length).Equals($root, [System.StringComparison]::OrdinalIgnoreCase) -and
+            ($normalized.Length -eq $root.Length -or $normalized[$root.Length] -eq '/')) {
             $normalized = $normalized.Substring($root.Length)
         }
     }
@@ -717,7 +722,12 @@ function Invoke-CoverageSession {
     }
 
     if ($collector -and -not $collector.HasExited) {
-        $null = $collector.WaitForExit(120000)
+        # shutdown should stop the collector; if it does not exit in time, kill it
+        # (best-effort) so we do not leak a collector into subsequent CI steps.
+        if (-not $collector.WaitForExit(120000)) {
+            Write-Warning "Coverage collector for suite '$Name' did not exit within 120s of shutdown; terminating it."
+            try { $collector.Kill() } catch { Write-Warning "Failed to terminate collector for suite '$Name': $($_.Exception.Message)" }
+        }
     }
 
     if (Test-Path -LiteralPath $coverageOut) {

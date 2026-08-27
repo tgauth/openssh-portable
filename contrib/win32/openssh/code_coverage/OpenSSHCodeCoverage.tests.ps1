@@ -52,6 +52,11 @@ Describe 'ConvertTo-NormalizedCoverageSourcePath' {
             $result = ConvertTo-NormalizedCoverageSourcePath -RawPath 'C:\SRC\OpenSSH-Portable\channels.c' -RepositoryRoot 'C:\src\openssh-portable'
             $result | Should -Be 'channels.c'
         }
+
+        It 'Does not strip a sibling directory that merely shares a prefix' {
+            $result = ConvertTo-NormalizedCoverageSourcePath -RawPath 'C:\repository\file.c' -RepositoryRoot 'C:\repo'
+            $result | Should -Be 'C:/repository/file.c'
+        }
     }
 
     Context 'CI checkout prefixes' {
