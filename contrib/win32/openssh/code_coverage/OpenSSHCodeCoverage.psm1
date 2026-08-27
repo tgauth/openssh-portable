@@ -536,8 +536,14 @@ function Get-OpenSSHCoverageTarget {
     .DESCRIPTION
     An instrumented native binary references static_covrun64.dll at load time.
     The `collect`/`connect` commands add its directory to PATH automatically, but
-    the sshd *service* is launched by the Service Control Manager and does not
-    inherit that PATH, so the runtime must sit beside the instrumented binaries.
+    the sshd/ssh-agent *services* are launched by the Service Control Manager and
+    do not inherit that PATH, so the runtime must sit beside the instrumented
+    binaries or the services fail to start.
+
+    The runtime does not live next to Microsoft.CodeCoverage.Console.exe; it ships
+    under "<VS install root>\Team Tools\Dynamic Code Coverage Tools\" (with a
+    per-architecture subfolder), so the search starts from the VS install root
+    inferred from the tool path.
 #>
 function Copy-CoverageRuntime {
     [CmdletBinding()]
@@ -547,12 +553,44 @@ function Copy-CoverageRuntime {
     )
 
     $toolDir = Split-Path -Parent $ToolPath
-    $runtimes = Get-ChildItem -Path $toolDir -Recurse -Filter 'static_covrun*.dll' -ErrorAction SilentlyContinue
+
+    # The tool lives at <root>\Common7\IDE\Extensions\Microsoft\CodeCoverage.Console;
+    # walk up to the VS install root (the parent of the "Common7" segment) so the
+    # sibling "Team Tools\Dynamic Code Coverage Tools" folder is in scope.
+    $installRoot = $null
+    $probe = $toolDir
+    while ($probe) {
+        if ((Split-Path -Leaf $probe) -eq 'Common7') {
+            $installRoot = Split-Path -Parent $probe
+            break
+        }
+        $parent = Split-Path -Parent $probe
+        if (-not $parent -or $parent -eq $probe) { break }
+        $probe = $parent
+    }
+
+    # Prefer the known runtime folder, then fall back to broader recursive scans.
+    $runtimes = $null
+    if ($installRoot) {
+        $dynamicTools = Join-Path $installRoot 'Team Tools\Dynamic Code Coverage Tools'
+        if (Test-Path -LiteralPath $dynamicTools) {
+            $runtimes = Get-ChildItem -Path $dynamicTools -Recurse -Filter 'static_covrun*.dll' -ErrorAction SilentlyContinue
+        }
+    }
     if (-not $runtimes) {
-        Write-Warning "No static_covrun*.dll found under '$toolDir'; instrumented service binaries may fail to load."
+        $runtimes = Get-ChildItem -Path $toolDir -Recurse -Filter 'static_covrun*.dll' -ErrorAction SilentlyContinue
+    }
+    if (-not $runtimes -and $installRoot) {
+        $runtimes = Get-ChildItem -Path $installRoot -Recurse -Filter 'static_covrun*.dll' -ErrorAction SilentlyContinue
+    }
+
+    if (-not $runtimes) {
+        Write-Warning "No static_covrun*.dll found near '$ToolPath'; instrumented service binaries may fail to load."
         return
     }
-    foreach ($rt in $runtimes) {
+
+    # Copy one DLL per file name (the arch variants have distinct names).
+    foreach ($rt in ($runtimes | Group-Object Name | ForEach-Object { $_.Group[0] })) {
         Copy-Item -LiteralPath $rt.FullName -Destination $DestinationDirectory -Force
     }
 }
