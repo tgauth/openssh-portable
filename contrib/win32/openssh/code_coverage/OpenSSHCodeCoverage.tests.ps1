@@ -90,7 +90,75 @@ Describe 'Import-CoberturaCoverage' {
         $map['channels.c'][2] | Should -Be 0
         $map['channels.c'][3] | Should -Be 2
     }
+
+    It 'Skips vendored third-party (vcpkg) sources' {
+        $file = Join-Path $TestDrive 'tp.cobertura.xml'
+        New-TestCobertura -FileName 'deflate.c' -SourcePath 'C:\repo\vcpkg\buildtrees\zlib\src\deflate.c' -Lines @{ 1 = 5; 2 = 3 } -OutFile $file | Out-Null
+
+        $map = Import-CoberturaCoverage -Path $file -RepositoryRoot 'C:\repo'
+        $map.Keys.Count | Should -Be 0
+    }
 }
+
+Describe 'Test-CoverageSourceExcluded' {
+    It 'Excludes vcpkg-vendored paths' {
+        Test-CoverageSourceExcluded -NormalizedPath 'vcpkg/buildtrees/zlib/src/deflate.c' | Should -BeTrue
+    }
+
+    It 'Excludes vcpkg even when nested deeper in the tree' {
+        Test-CoverageSourceExcluded -NormalizedPath 'contrib/win32/vcpkg/x.c' | Should -BeTrue
+    }
+
+    It 'Does not exclude OpenSSH sources' {
+        Test-CoverageSourceExcluded -NormalizedPath 'channels.c' | Should -BeFalse
+        Test-CoverageSourceExcluded -NormalizedPath 'contrib/win32/win32compat/ansiprsr.c' | Should -BeFalse
+    }
+}
+
+Describe 'Remove-ExcludedCoverageClasses' {
+    It 'Removes third-party classes and recomputes counters' {
+        $xml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<coverage line-rate="0" lines-covered="0" lines-valid="0" version="0" timestamp="0">
+  <packages>
+    <package name="ssh" line-rate="0" lines-covered="0" lines-valid="0">
+      <classes>
+        <class name="channels.c" filename="C:\repo\channels.c"><lines>
+          <line number="1" hits="5"/><line number="2" hits="0"/>
+        </lines></class>
+        <class name="deflate.c" filename="C:\repo\vcpkg\buildtrees\zlib\deflate.c"><lines>
+          <line number="1" hits="0"/><line number="2" hits="0"/>
+        </lines></class>
+      </classes>
+    </package>
+    <package name="zlibonly" line-rate="0" lines-covered="0" lines-valid="0">
+      <classes>
+        <class name="inflate.c" filename="C:\repo\vcpkg\buildtrees\zlib\inflate.c"><lines>
+          <line number="1" hits="9"/>
+        </lines></class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+'@
+        $file = Join-Path $TestDrive 'merged.cobertura.xml'
+        Set-Content -Path $file -Value $xml -NoNewline
+
+        $removed = Remove-ExcludedCoverageClasses -Path $file -RepositoryRoot 'C:\repo'
+        $removed | Should -Be 2
+
+        [xml] $doc = Get-Content -LiteralPath $file -Raw
+        # Only the ssh package with channels.c survives.
+        $doc.SelectNodes('//package').Count | Should -Be 1
+        $doc.SelectNodes('//class').Count | Should -Be 1
+        $doc.SelectSingleNode('//class').GetAttribute('filename') | Should -Match 'channels\.c$'
+        # Root counters recomputed from surviving lines: 1 covered of 2 valid.
+        $doc.coverage.GetAttribute('lines-valid') | Should -Be '2'
+        $doc.coverage.GetAttribute('lines-covered') | Should -Be '1'
+        $doc.coverage.GetAttribute('line-rate') | Should -Be '0.5'
+    }
+}
+
 
 Describe 'Merge-CoverageData' {
     Context 'Overlapping coverage of the same file/line' {

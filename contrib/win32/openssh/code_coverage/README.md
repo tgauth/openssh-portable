@@ -52,6 +52,17 @@ CombinedCoveredLines = covered lines after merge (each line once)   <- the estim
 OverlapLines         = SumCoveredLines - CombinedCoveredLines
 ```
 
+### Third-party exclusion
+
+Vendored dependencies built through vcpkg (e.g. zlib) are linked into the
+OpenSSH binaries and therefore show up in the raw coverage data, but they are
+not OpenSSH code and only dilute the estimate. Any source whose
+repository-relative path matches `$script:CoverageExcludePattern` (default
+`(^|/)vcpkg/`) is dropped: `Import-CoberturaCoverage` skips it in the summary,
+and `Remove-ExcludedCoverageClasses` strips it from the published
+`merged.cobertura.xml` (recomputing the package/root line counters) so the
+Cobertura report matches the summary.
+
 ## Usage
 
 Coverage normally runs in CI (see below). To reproduce locally you need

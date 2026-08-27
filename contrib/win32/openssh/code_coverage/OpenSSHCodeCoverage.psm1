@@ -47,7 +47,35 @@ $ErrorActionPreference = 'Stop'
 # Repository root is four levels up from contrib\win32\openssh\code_coverage.
 $script:RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..' '..' '..')).Path
 
+# Source paths (normalized, repository-relative, forward-slash) matching this
+# pattern are third-party dependencies vendored into the tree - primarily the
+# vcpkg-built libraries such as zlib. They are not OpenSSH code, are never
+# exercised by our test suites in a meaningful way, and only dilute the
+# coverage estimate, so they are excluded from every coverage map.
+$script:CoverageExcludePattern = '(?i)(^|/)vcpkg/'
+
 #region Pure helpers (unit tested)
+
+<#
+    .SYNOPSIS
+    Returns $true when a normalized source path should be excluded from the
+    coverage estimate (e.g. vendored third-party dependencies).
+#>
+function Test-CoverageSourceExcluded {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string] $NormalizedPath,
+
+        [string] $ExcludePattern = $script:CoverageExcludePattern
+    )
+
+    if ([string]::IsNullOrWhiteSpace($NormalizedPath)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($ExcludePattern)) { return $false }
+    return [regex]::IsMatch($NormalizedPath, $ExcludePattern)
+}
 
 <#
     .SYNOPSIS
@@ -139,6 +167,10 @@ function Import-CoberturaCoverage {
         $file = $class.GetAttribute('filename')
         if ([string]::IsNullOrWhiteSpace($file)) { continue }
         $key = ConvertTo-NormalizedCoverageSourcePath -RawPath $file -RepositoryRoot $RepositoryRoot
+
+        # Skip vendored third-party sources (e.g. vcpkg/zlib) - they are not
+        # OpenSSH code and would only dilute the coverage estimate.
+        if (Test-CoverageSourceExcluded -NormalizedPath $key) { continue }
 
         if (-not $map.ContainsKey($key)) {
             $map[$key] = @{}
@@ -375,9 +407,92 @@ function New-MergedCoberturaReport {
 
 <#
     .SYNOPSIS
-    Builds a human/machine readable summary object from per-suite statistics,
-    the combined statistic and the overlap measurement.
+    Removes vendored third-party (excluded) classes from a Cobertura XML file
+    in place and recomputes the aggregate line counters.
+
+    .DESCRIPTION
+    The native Microsoft.CodeCoverage.Console merge still contains every source
+    that was linked into the instrumented binaries, including vcpkg-built
+    dependencies such as zlib. This strips those <class> nodes (matched via
+    Test-CoverageSourceExcluded against the normalized filename), drops any
+    package left empty, and recomputes lines-valid / lines-covered / line-rate
+    on each package and on the root so the published report matches the summary
+    estimate. Returns the number of classes removed.
 #>
+function Remove-ExcludedCoverageClasses {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path,
+
+        [string] $RepositoryRoot = $script:RepositoryRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Cobertura report not found: $Path"
+    }
+
+    [xml] $xml = Get-Content -LiteralPath $Path -Raw
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    [int] $removed = 0
+
+    foreach ($class in @($xml.SelectNodes('//class'))) {
+        $file = $class.GetAttribute('filename')
+        if ([string]::IsNullOrWhiteSpace($file)) { continue }
+        $key = ConvertTo-NormalizedCoverageSourcePath -RawPath $file -RepositoryRoot $RepositoryRoot
+        if (Test-CoverageSourceExcluded -NormalizedPath $key) {
+            [void] $class.ParentNode.RemoveChild($class)
+            $removed++
+        }
+    }
+
+    # Recompute counters per <package> and for the document root from the
+    # surviving <line> elements so consumers report the excluded totals.
+    [int] $rootValid = 0
+    [int] $rootCovered = 0
+    foreach ($package in @($xml.SelectNodes('//package'))) {
+        $lines = $package.SelectNodes('.//line')
+        if (-not $lines -or $lines.Count -eq 0) {
+            [void] $package.ParentNode.RemoveChild($package)
+            continue
+        }
+        [int] $valid = 0
+        [int] $covered = 0
+        foreach ($line in $lines) {
+            $valid++
+            if ([int] $line.GetAttribute('hits') -gt 0) { $covered++ }
+        }
+        $rate = if ($valid -gt 0) { [math]::Round($covered / $valid, 4) } else { 0 }
+        Set-CoberturaLineCounter -Node $package -Valid $valid -Covered $covered -Rate $rate -Culture $inv
+        $rootValid += $valid
+        $rootCovered += $covered
+    }
+
+    $rootRate = if ($rootValid -gt 0) { [math]::Round($rootCovered / $rootValid, 4) } else { 0 }
+    Set-CoberturaLineCounter -Node $xml.DocumentElement -Valid $rootValid -Covered $rootCovered -Rate $rootRate -Culture $inv
+
+    $xml.Save($Path)
+    return $removed
+}
+
+# Sets/updates the lines-valid, lines-covered and line-rate attributes on a
+# Cobertura node (only those already present are updated, plus line-rate/counts
+# which every consumer expects). Kept private (not exported).
+function Set-CoberturaLineCounter {
+    param(
+        [Parameter(Mandatory = $true)] [System.Xml.XmlElement] $Node,
+        [Parameter(Mandatory = $true)] [int] $Valid,
+        [Parameter(Mandatory = $true)] [int] $Covered,
+        [Parameter(Mandatory = $true)] [double] $Rate,
+        [Parameter(Mandatory = $true)] [System.Globalization.CultureInfo] $Culture
+    )
+
+    $Node.SetAttribute('line-rate', $Rate.ToString($Culture))
+    if ($Node.HasAttribute('lines-valid'))   { $Node.SetAttribute('lines-valid', ([string]$Valid)) }
+    if ($Node.HasAttribute('lines-covered')) { $Node.SetAttribute('lines-covered', ([string]$Covered)) }
+}
+
 function Get-CoverageSummary {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -874,6 +989,21 @@ function Invoke-CoverageAggregation {
         Copy-Item -LiteralPath $helperMerged -Destination $nativeMerged -Force
     }
 
+    # Strip vendored third-party sources (e.g. vcpkg/zlib) from the published
+    # merged report so it matches the summary estimate. The helper-merged path
+    # is already filtered at import time; this only affects the native merge.
+    if ($nativeMergeOk) {
+        try {
+            $removedClasses = Remove-ExcludedCoverageClasses -Path $nativeMerged -RepositoryRoot $SourceRoot
+            if ($removedClasses -gt 0) {
+                Write-Host "Excluded $removedClasses third-party class entries from merged.cobertura.xml."
+            }
+        }
+        catch {
+            Write-Warning "Could not strip third-party sources from merged report: $($_.Exception.Message)"
+        }
+    }
+
     $summary = Get-CoverageSummary -SuiteStatistic $suiteStats -CombinedStatistic $combinedStat -Overlap $overlap
     $summaryJson = Join-Path $OutputDirectory 'coverage-summary.json'
     $summaryMd = Join-Path $OutputDirectory 'coverage-summary.md'
@@ -893,11 +1023,13 @@ function Invoke-CoverageAggregation {
 
 Export-ModuleMember -Function @(
     'ConvertTo-NormalizedCoverageSourcePath',
+    'Test-CoverageSourceExcluded',
     'Import-CoberturaCoverage',
     'Merge-CoverageData',
     'Get-CoverageStatistic',
     'Measure-CoverageOverlap',
     'New-MergedCoberturaReport',
+    'Remove-ExcludedCoverageClasses',
     'Get-CoverageSummary',
     'Format-CoverageSummaryMarkdown',
     'Find-CodeCoverageConsole',
