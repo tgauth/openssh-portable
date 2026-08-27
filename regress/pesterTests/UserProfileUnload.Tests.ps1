@@ -47,20 +47,27 @@ Describe "User profile hive is unloaded after a session (issue #1694)" -Tags "CI
         # A job has no console, so ssh uses SSH_ASKPASS for the password.
         $job = Start-Job -ScriptBlock {
             param($port, $server, $user)
-            ssh -p $port -o "StrictHostKeyChecking=no" "$user@$server" "powershell -NoProfile -Command Start-Sleep -Seconds 8"
+            ssh -p $port -o "StrictHostKeyChecking=no" "$user@$server" "powershell -NoProfile -Command Start-Sleep -Seconds 30"
         } -ArgumentList $port, $server, $user
 
-        # Allow authentication and profile load to complete. Enumerate HKEY_USERS via
-        # reg.exe (needs only enumerate rights, unlike opening the ACL'd hive key).
-        Start-Sleep -Seconds 3
-        [bool]((reg query HKU 2>$null) -match [regex]::Escape($userSid)) | Should Be $true
+        # Wait for auth + profile load (slow on CI). Enumerate HKEY_USERS via reg.exe,
+        # which needs only enumerate rights, unlike opening the ACL'd hive key.
+        $loaded = $false
+        for ($i = 0; $i -lt 30 -and -not $loaded; $i++) {
+            Start-Sleep -Seconds 1
+            $loaded = [bool]((reg query HKU 2>$null) -match [regex]::Escape($userSid))
+        }
+        $loaded | Should Be $true
 
         Stop-Job $job
         Remove-Job $job -Force
 
-        # The session child is reaped asynchronously; allow the unload to complete.
-        Start-Sleep -Seconds 2
-
-        [bool]((reg query HKU 2>$null) -match [regex]::Escape($userSid)) | Should Be $false
+        # The session child is reaped asynchronously; wait for the unload to complete.
+        $loaded = $true
+        for ($i = 0; $i -lt 30 -and $loaded; $i++) {
+            Start-Sleep -Seconds 1
+            $loaded = [bool]((reg query HKU 2>$null) -match [regex]::Escape($userSid))
+        }
+        $loaded | Should Be $false
     }
 }
