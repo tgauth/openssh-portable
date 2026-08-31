@@ -99,10 +99,24 @@ that suite.
 ```
 core\core.coverage,  core\core.cobertura.xml       per-suite (setup + unit + E2E)
 bash\bash.coverage,  bash\bash.cobertura.xml       per-suite (bash tests)
-merged\merged.cobertura.xml                        combined, de-duplicated (native merge)
+merged\merged.cobertura.xml                        combined, native merge (per-binary)
+merged\merged-helper.cobertura.xml                 combined, de-duplicated by source file
 coverage-summary.json                              machine-readable summary
 coverage-summary.md                                per-suite + combined + overlap table
 ```
+
+Two combined reports are emitted because they answer different questions:
+
+- **`merged-helper.cobertura.xml`** is de-duplicated by unique source file — a
+  `.c` linked into several binaries is counted once. This matches the
+  `coverage-summary.md` estimate and is the report published to the Azure DevOps
+  **Code Coverage widget** (see CI section).
+- **`merged.cobertura.xml`** is the native Microsoft.CodeCoverage.Console merge.
+  It preserves per-binary packages, per-method coverage, cyclomatic complexity
+  and branch data, but counts each shared `.c` once **per binary** it is linked
+  into (~3.6x inflation on this solution). It is kept in the uploaded artifact
+  for per-binary / per-method drill-down (e.g. reopening the `.coverage` files in
+  Visual Studio).
 
 Example `coverage-summary.md`:
 
@@ -149,10 +163,12 @@ agent budget, and `continueOnError: true` so they never block a merge):
    `-Bash`.
 3. **Win32-OpenSSH Code Coverage (Aggregate)** — a Test-stage job that depends on
    the two suite jobs, downloads their per-suite artifacts, and runs
-   `Invoke-AzDOCoverageAggregate.ps1` to produce the merged, de-duplicated
-   report. It publishes the merged Cobertura via `PublishCodeCoverageResults@2`
-   and uploads the full `Win32-OpenSSH-CodeCoverage` artifact (per-suite reports
-   + summaries).
+   `Invoke-AzDOCoverageAggregate.ps1` to produce the merged reports. It publishes
+   the **de-duplicated** report (`merged/merged-helper.cobertura.xml`) via
+   `PublishCodeCoverageResults@2` so the Code Coverage widget headline matches the
+   `coverage-summary.md` estimate, and uploads the full `Win32-OpenSSH-CodeCoverage`
+   artifact (per-suite reports, both merged reports, the raw `.coverage` files, and
+   summaries) for per-binary / per-method drill-down.
 
 The suites run the exact CI entry points (`Invoke-OpenSSHTests`,
 `Invoke-OpenSSHBashTestsOnly`), so coverage reflects what CI already exercises.

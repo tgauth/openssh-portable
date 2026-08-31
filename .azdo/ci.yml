@@ -352,7 +352,15 @@ stages:
       displayName: Publish code coverage results
       condition: always()
       inputs:
-        summaryFileLocation: '$(aggregateDir)/merged/merged.cobertura.xml'
+        # Publish the de-duplicated (per-source-file) report so the Azure
+        # DevOps "Code Coverage" widget headline matches the number we stand
+        # behind (see the "Print coverage summary" step). The native
+        # Microsoft.CodeCoverage.Console report counts each shared .c once per
+        # binary it is linked into, which inflates the totals ~3.6x. The native
+        # per-binary report (merged/merged.cobertura.xml) and the raw .coverage
+        # files are still uploaded in the Win32-OpenSSH-CodeCoverage artifact
+        # below for per-binary / per-method drill-down (e.g. in Visual Studio).
+        summaryFileLocation: '$(aggregateDir)/merged/merged-helper.cobertura.xml'
         pathToSources: '$(Build.SourcesDirectory)'
 
     - pwsh: |
