@@ -198,6 +198,10 @@ try
 		# picking the gawk.exe from bash folder.
 		# TODO - check if gawk.exe is present in WSL.
 		$all_tests = gawk.exe 'sub(/.*LTESTS=/,""""){f=1} f{print $1; if (!/\\\\/) exit}' Makefile
+		# agent-pkcs11.sh lives in EXTRA_TESTS upstream (it needs a PKCS#11
+		# provider), but on Windows test-exec.sh can provision SoftHSM2, so
+		# run it here without editing the shared upstream Makefile.
+		$all_tests += "agent-pkcs11"
 	}
 
 	Write-Output ""

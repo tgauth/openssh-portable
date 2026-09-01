@@ -1108,6 +1108,17 @@ p11_ssh_add() {
 	env SSH_ASKPASS="$PIN_SH" SSH_ASKPASS_REQUIRE=force ${SSHADD} "$@"
 }
 
+# Load fork-local Windows test helpers, if present.  Keeping the
+# Windows-specific PKCS#11/emulator setup in a separate file (rather than
+# inline "if windows" blocks) avoids conflicts when merging upstream changes
+# into this file.  The helper may override functions such as p11_setup.
+if [ "$os" = "windows" ]; then
+	_win_test_helper="${SRC}/../contrib/win32/openssh/test-exec-windows.sh"
+	if [ -f "$_win_test_helper" ]; then
+		. "$_win_test_helper"
+	fi
+fi
+
 # source test body
 . $SCRIPT
 

@@ -1,0 +1,6 @@
+LIBRARY sk-dummy
+EXPORTS
+	sk_api_version
+	sk_enroll
+	sk_sign
+	sk_load_resident_keys

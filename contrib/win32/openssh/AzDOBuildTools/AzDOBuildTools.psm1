@@ -504,6 +504,22 @@ function Copy-BuildResults
 
     # Copy OpenSSH package to results directory
     Start-OpenSSHPackage -DestinationPath $BuildResultsPath -NativeHostArch $NativeHostArch -Configuration $Configuration
+
+    # Copy the sk-dummy FIDO/U2F middleware (used by the regress/sk.sh
+    # security-key test) next to the binaries in the CI test artifact.  It is
+    # intentionally NOT part of the released OpenSSH package payload
+    # (Start-OpenSSHPackage) - it is a test-only software authenticator.
+    $repoRoot = Get-RepositoryRoot
+    $folderName = $NativeHostArch
+    if ($NativeHostArch -ieq 'x86') { $folderName = "Win32" }
+    $skDummyPath = Join-Path $repoRoot.FullName ("bin\" + $folderName + "\" + $Configuration + "\sk-dummy.dll")
+    if (Test-Path -Path $skDummyPath) {
+        Copy-Item -Path $skDummyPath -Destination $BuildResultsPath -Force
+        Write-Verbose -Verbose -Message "Copied sk-dummy.dll to $BuildResultsPath"
+    }
+    else {
+        Write-Verbose -Verbose -Message "sk-dummy.dll not found at $skDummyPath; skipping (sk tests will be skipped)"
+    }
 }
 
 <#
