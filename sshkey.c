@@ -775,7 +775,12 @@ sshkey_prekey_alloc(u_char **prekeyp, size_t len)
 #endif
 	*prekeyp = prekey;
 #else
+#ifdef WINDOWS
+	if ((*prekeyp = calloc(1, len)) == NULL)
+ 		return SSH_ERR_ALLOC_FAIL;
+#else
 	*prekeyp = calloc(1, len);
+#endif /* WINDOWS */
 #endif /* HAVE_MMAP et al */
 	return 0;
 }
