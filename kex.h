@@ -291,4 +291,14 @@ int	kexc25519_shared_key_ext(const u_char key[CURVE25519_SIZE],
 void	dump_digest(const char *, const u_char *, int);
 #endif
 
+#ifndef WITH_OPENSSL
+#undef BIGNUM
+#undef DH
+#undef RSA
+#undef EC_KEY
+#undef EC_GROUP
+#undef EC_POINT
+#undef EVP_PKEY
+#endif /* !WITH_OPENSSL */
+
 #endif

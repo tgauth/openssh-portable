@@ -435,4 +435,14 @@ u_int	sshbuf_refcount(const struct sshbuf *buf);
 # endif
 #endif /* SSHBUF_INTERNAL */
 
+#ifndef WITH_OPENSSL
+#undef BIGNUM
+#undef DH
+#undef RSA
+#undef EC_KEY
+#undef EC_GROUP
+#undef EC_POINT
+#undef EVP_PKEY
+#endif /* !WITH_OPENSSL */
+
 #endif /* _SSHBUF_H */
