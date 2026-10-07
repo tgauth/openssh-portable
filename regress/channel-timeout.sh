@@ -56,7 +56,12 @@ verbose "match command timeout"
 	> $OBJ/sshd_proxy
 ${SSH} -F $OBJ/ssh_proxy somehost "sleep 5 ; exit 23"
 r=$?
-if [ $r -ne 255 ]; then
+if [ "$os" == "windows" ]; then
+	expected_status=127
+else
+	expected_status=255
+fi
+if [ $r -ne $expected_status ]; then
 	fail "ssh returned unexpected error code $r"
 fi
 
