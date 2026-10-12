@@ -2876,7 +2876,11 @@ int
 fill_default_options(Options * options)
 {
 	char *all_cipher, *all_mac, *all_kex, *all_key, *all_sig;
-	char *def_cipher = NULL, *def_mac = NULL, *def_kex = NULL, *def_key = NULL, *def_sig = NULL;
+#ifdef WINDOWS
+	char* def_cipher = NULL, * def_mac = NULL, * def_kex = NULL, * def_key = NULL, * def_sig = NULL;
+#else
+	char* def_cipher, def_mac, def_kex, def_key, def_sig;
+#endif /* WINDOWS */
 	int ret = -1, r;
 
 	if (options->forward_agent == -1)
