@@ -108,7 +108,7 @@ Describe "E2E scenarios for rekeying" -Tags "CI" {
                 $LASTEXITCODE | Should Be 0
                 (($effectiveConfig -join "`n") -match '(?im)^rekeylimit 262144(?:\s|$)') | Should Be $true
 
-                Start-SSHDTestDaemon -WorkDir $OpenSSHTestInfo["OpenSSHBinPath"] -Arguments "-d -f $sshdConfigPath -E $sshdLog" -Port $port
+                Start-SSHDTestDaemon -WorkDir $OpenSSHTestInfo["OpenSSHBinPath"] -Arguments "-D -f $sshdConfigPath -E $sshdLog" -Port $port
                 $null = fsutil file createNew $sourceFile 4194304
 
                 $remoteFileCreated = $true
