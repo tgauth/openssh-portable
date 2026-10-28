@@ -221,7 +221,11 @@ sshkey_try_load_public(struct sshkey **kp, const char *filename,
 		*commentp = NULL;
 	if ((f = fopen(filename, "r")) == NULL)
 		return SSH_ERR_SYSTEM_ERROR;
+#ifdef WINDOWS
+	if (stat(filename, &st) == 0 && S_ISREG(st.st_mode) &&
+#else
 	if (fstat(fileno(f), &st) == 0 && S_ISREG(st.st_mode) &&
+#endif
 	    st.st_size > SSHBUF_SIZE_MAX) {
 		fclose(f);
 		return SSH_ERR_INVALID_FORMAT;
