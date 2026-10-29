@@ -24,6 +24,14 @@ Get-ChildItem "C:\Program Files*\Windows Kits\10\bin" -Directory
 git --version
 ```
 
+### Visual Studio 2026
+
+The build helper supports Visual Studio 2026 installations under `18` or
+`2026` directories, using their `v180` C++ targets and `VS180COMNTOOLS`.
+The projects and vcpkg remain on the `v143` toolset, so install the optional
+Visual Studio 2022 (v143) C++ build tools in the VS 2026 installation.
+VS 2022 is still preferred when both versions are available.
+
 ### vcpkg Dependencies
 The build links against vendored libraries (`libressl`, `libfido2`, `libcbor`,
 `zlib`) installed via vcpkg. The build will **fail** if

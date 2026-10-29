@@ -196,7 +196,20 @@ function Start-OpenSSHBootstrap
     else {
         $MSBuildPath = Get-VS2015BuildToolPath
     }
-    if ($MSBuildPath | Select-String "2022")
+    if ($MSBuildPath -match '\\(?:18|2026)\\')
+    {
+        $env:vctargetspath = Join-Path $VisualStudioPath "MSBuild\Microsoft\VC\v180\"
+        if ($null -eq $env:VS180COMNTOOLS)
+        {
+            $env:VS180COMNTOOLS = Get-BuildToolPath -VSInstallPath $VisualStudioPath -version "2026"
+        }
+        elseif (-not (Test-Path $env:VS180COMNTOOLS))
+        {
+            Write-BuildMsg -AsError -ErrorAction Stop -Message "$env:VS180COMNTOOLS build tools path is invalid"
+        }
+        $VSBuildToolsPath = Get-Item(Join-Path $VisualStudioPath 'vc/auxiliary/build')
+    }
+    elseif ($MSBuildPath | Select-String "2022")
     {
         $env:vctargetspath = Join-Path $VisualStudioPath "MSBuild\Microsoft\VC\v170\"
         if ($null -eq $env:VS170COMNTOOLS)
@@ -561,7 +574,7 @@ function Start-OpenSSHBuild
         $msbuildCmd = Get-MSBuildPath -VSInstallPath $VisualStudioPath
         # Pin vcpkg's CMake to the same VS install / toolset (v143) as the
         # OpenSSH vcxproj files, so manifest-mode auto-install doesn't pick a
-        # newer VS (e.g. VS 2026) whose v14x toolset is unsupported here.
+        # newer default toolset when building with VS 2026.
         $env:VCPKG_VISUAL_STUDIO_PATH = $VisualStudioPath
         $env:VCPKG_PLATFORM_TOOLSET = "v143"
     }
@@ -621,7 +634,7 @@ function Get-VisualStudioPath {
         if ($null -ne $VSPaths) {
             # Prefer VS 2022 — the .vcxproj files pin <PlatformToolset>v143</PlatformToolset>,
             # which ships with VS 2022. Older VS (2017=v141, 2019=v142) would need v143 build tools
-            # sideloaded; newer VS (e.g. 2026) defaults to v145 which isn't supported here.
+            # sideloaded; VS 2026 also needs the optional v143 build tools installed.
             $preferred = @($VSPaths | Where-Object { $_ -match '\\2022\\' })
             $ordered = $preferred + @($VSPaths | Where-Object { $_ -notmatch '\\2022\\' })
             foreach ($VSPath in $ordered) {
