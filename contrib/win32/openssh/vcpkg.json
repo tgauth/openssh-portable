@@ -12,11 +12,11 @@
     },
     {
       "name": "libressl",
-      "version": "4.2.0"
+      "version": "4.3.3"
     },
     {
       "name": "libfido2",
-      "version": "1.16.0"
+      "version": "1.17.0"
     },
     {
       "name": "libcbor",
