@@ -28,9 +28,12 @@ git --version
 
 The build helper supports Visual Studio 2026 installations under `18` or
 `2026` directories, using their `v180` C++ targets and `VS180COMNTOOLS`.
-The projects and vcpkg remain on the `v143` toolset, so install the optional
-Visual Studio 2022 (v143) C++ build tools in the VS 2026 installation.
-VS 2022 is still preferred when both versions are available.
+The x86, x64, and ARM64 project configurations and custom vcpkg triplets use
+the `v145` toolset, including its matching Spectre-mitigated libraries. The
+build helper selects VS 2026 explicitly rather than an older installation.
+ARM32 remains on `v143` and selects VS 2022 because VS 2026 removed the ARM32
+compiler. Hosted images are used as provided; the build does not install
+legacy compiler components into VS 2026.
 
 ### vcpkg Dependencies
 The build links against vendored libraries (`libressl`, `libfido2`, `libcbor`,
