@@ -196,7 +196,8 @@ function Start-OpenSSHBootstrap
     else {
         $MSBuildPath = Get-VS2015BuildToolPath
     }
-    if ($MSBuildPath -match '\\(?:18|2026)\\')
+    # Discovery selects VS 2022 for ARM32 and VS 2026 for all other targets.
+    if ($NativeHostArch -ne 'arm')
     {
         $env:vctargetspath = Join-Path $VisualStudioPath "MSBuild\Microsoft\VC\v180\"
         if ($null -eq $env:VS180COMNTOOLS)
@@ -209,7 +210,7 @@ function Start-OpenSSHBootstrap
         }
         $VSBuildToolsPath = Get-Item(Join-Path $VisualStudioPath 'vc/auxiliary/build')
     }
-    elseif ($MSBuildPath | Select-String "2022")
+    elseif ($NativeHostArch -eq 'arm')
     {
         $env:vctargetspath = Join-Path $VisualStudioPath "MSBuild\Microsoft\VC\v170\"
         if ($null -eq $env:VS170COMNTOOLS)

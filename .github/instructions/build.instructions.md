@@ -26,8 +26,10 @@ git --version
 
 ### Visual Studio 2026
 
-The build helper supports Visual Studio 2026 installations under `18` or
-`2026` directories, using their `v180` C++ targets and `VS180COMNTOOLS`.
+The build helper supports standard and custom Visual Studio 2026 installation
+paths, using their `v180` C++ targets and `VS180COMNTOOLS`. Bootstrap follows
+the architecture-specific VS selection rather than inferring a version from
+directory names.
 The x86, x64, and ARM64 project configurations and custom vcpkg triplets use
 the `v145` toolset, including its matching Spectre-mitigated libraries. The
 build helper selects VS 2026 explicitly rather than an older installation.
