@@ -3462,26 +3462,102 @@ mkdir_path(const char *target, mode_t mode)
 	char *dir, *odir, *p, path[PATH_MAX] = "";
 	int ret = -1;
 	size_t plen = sizeof(path);
+#ifdef WINDOWS
+	struct stat st;
+#endif
 
 	dir = odir = xstrdup(target);
 
+#ifdef WINDOWS
+	convertToForwardslash(dir);
+	/* Accept the /C:/ form returned by the Windows realpath(). */
+	if (dir[0] == '/' && isalpha((u_char)dir[1]) && dir[2] == ':')
+		dir++;
+	/* realpath() also prefixes native UNC paths with '/'. */
+	else if (strncmp(dir, "///", 3) == 0)
+		dir++;
+#endif
 	/* If the dir is relative, start with cwd. */
+#ifdef WINDOWS
+	if (!path_absolute(dir) && getcwd(path, plen) == NULL) {
+#else
 	if (*dir != '/' && getcwd(path, plen) == NULL) {
+#endif
 		error_f("getcwd: %s", strerror(errno));
 		goto out;
 	}
 
+#ifdef WINDOWS
+	if (isalpha((u_char)dir[0]) && dir[1] == ':') {
+		path[0] = dir[0];
+		path[1] = ':';
+		/* A drive-relative path must not become drive-rooted. */
+		path[2] = dir[2] == '/' ? '/' : '\0';
+		path[3] = '\0';
+		dir += 2;
+	} else if (dir[0] == '/' && dir[1] == '/') {
+		/* A UNC server/share is a root, not directories to create. */
+		if ((p = strchr(dir + 2, '/')) == NULL || p[1] == '\0') {
+			errno = EINVAL;
+			error_f("invalid UNC path \"%s\"", target);
+			goto out;
+		}
+		if ((p = strchr(p + 1, '/')) != NULL)
+			*p = '\0';
+		if (strlcpy(path, dir, plen) >= plen) {
+			error_f("path too long: \"%s\"", target);
+			goto out;
+		}
+		dir = p == NULL ? NULL : p + 1;
+	} else if (*dir == '/')
+		strlcpy(path, "/", plen);
+	if (*path != '\0') {
+		if (stat(path, &st) == -1) {
+			error_f("stat(\"%s\"): %s", path, strerror(errno));
+			goto out;
+		}
+		if (!S_ISDIR(st.st_mode)) {
+			errno = ENOTDIR;
+			error_f("\"%s\" is not a directory", path);
+			goto out;
+		}
+	}
+#endif
+
 	/* Work through the path, component-wise */
 	while ((p = strsep(&dir, "/")) && p != '\0') {
+#ifdef WINDOWS
+		if (*p == '\0')
+			continue;
+		if (((*path == '\0' || path[strlen(path) - 1] != '/') &&
+		    (strlen(path) != 2 || path[1] != ':') &&
+		    strlcat(path, "/", plen) >= plen) ||
+		    strlcat(path, p, plen) >= plen) {
+			error_f("path too long: \"%s\"", target);
+			goto out;
+		}
+#else
 		if (strlcat(path, "/", plen) >= plen ||
 		    strlcat(path, p, plen) >= plen)
 			goto out;
+#endif
 		if (mkdir(path, mode) == 0)
 			debug_f("created directory %s", path);
 		else if (errno != EEXIST && errno != EISDIR) {
 			error_f("mkdir(\"%s\"): %s", path, strerror(errno));
 			goto out;
 		}
+#ifdef WINDOWS
+		if (stat(path, &st) == -1) {
+			error_f("stat(\"%s\"): %s", path, strerror(errno));
+			goto out;
+		}
+		if (!S_ISDIR(st.st_mode)) {
+			errno = ENOTDIR;
+			error_f("\"%s\" is not a directory", path);
+			goto out;
+		}
+#endif
 	}
 	/* success */
 	ret = 0;
