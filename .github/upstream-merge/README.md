@@ -129,11 +129,19 @@ to `PowerShell/openssh-portable`.
 
 | Secret | Used for | Agent access |
 |---|---|---|
-| `UPSTREAM_MERGE_TOKEN` | Trusted Windows jobs use it to push `vnext` and create/update the PR. A PAT or GitHub App token allows the push to trigger downstream workflows. | **None** |
+| `UPSTREAM_MERGE_TOKEN` | Trusted Windows jobs use it to push `vnext` and create/update the PR. For fork testing, use a `tgauth` user token that can update workflow files. | **None** |
 
 If `UPSTREAM_MERGE_TOKEN` is absent, the jobs fall back to `github.token`.
 The generated workflow manifest records this restricted secret and the pinned
 action/container dependencies reviewed by `gh aw compile --approve`.
+
+For fork testing, configure `UPSTREAM_MERGE_TOKEN` with permission to write
+repository contents and workflow files and to create pull requests. Upstream
+batches can modify `.github/workflows/**`; GitHub rejects those pushes when
+they use the built-in GitHub App token, even when the job has
+`contents: write`. A classic PAT needs `repo` and `workflow`; use the
+equivalent repository Contents and Pull requests permissions for a fine-grained
+token if its workflow-file policy permits the update.
 
 ## Scheduling caveat
 

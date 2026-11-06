@@ -37,6 +37,10 @@
     Build for Windows OneCore API subset.
     Default: false
 
+.PARAMETER RepositoryRoot
+    Repository root to build. When omitted, inferred from this script's normal
+    .github\tools location. Pass this when invoking a staged copy of the tool.
+
 .OUTPUTS
     Returns a hashtable with:
     - Success: Boolean indicating build success
@@ -86,7 +90,10 @@ param(
     [switch]$NoOpenSSL,
 
     [Parameter(Mandatory=$false)]
-    [switch]$OneCore
+    [switch]$OneCore,
+
+    [Parameter(Mandatory=$false)]
+    [string]$RepositoryRoot
 )
 
 # ── Resolve target architecture (default = host arch; forbid mismatch unless overridden) ──
@@ -110,9 +117,12 @@ if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEm
     throw "Requested architecture '$Architecture' does not match the host architecture '$hostArch'. Re-run with -AllowArchMismatch to build for a different architecture on purpose."
 }
 
-# Determine repository root (go up from .github\tools to repo root)
-$scriptRoot = $PSScriptRoot
-$repoRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+# Determine repository root (go up from .github\tools to repo root unless explicitly supplied).
+$repoRoot = if ($RepositoryRoot) {
+    (Resolve-Path -LiteralPath $RepositoryRoot).Path
+} else {
+    Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+}
 
 # Navigate to repository root
 Push-Location $repoRoot

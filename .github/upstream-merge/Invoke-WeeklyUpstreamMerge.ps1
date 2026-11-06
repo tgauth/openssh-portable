@@ -349,9 +349,10 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
     if (Test-CodeImpact $rangeForImpact) {
         Write-Log "Batch #$i touched C/H sources; building for validation."
         $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
-        $buildOutput = @(& pwsh -NoProfile -File $buildScript -Configuration Release -Architecture $Architecture 2>&1)
-        $buildOutput | ForEach-Object { Write-Host "    [build] $_" }
-        $built = $LASTEXITCODE -eq 0
+        $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+        $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
+            -RepositoryRoot $repositoryRoot
+        $built = [bool]$buildResult.Success
 
         if (-not $built) {
             Write-Log "Build failed; preparing agentic remediation." 'WARN'
@@ -391,9 +392,10 @@ $ciStatus = 'skipped'
 if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:RemediationRequired -and -not $SkipFinalCI) {
     Write-Log "Running full CI suite after merging $($script:BatchesMerged) batch(es)."
     $testScript = Get-ToolPath 'Invoke-OpenSSHTests.ps1'
-    & pwsh -NoProfile -File $testScript -Configuration Release -Architecture $Architecture 2>&1 |
-        ForEach-Object { Write-Host "    [ci] $_" }
-    if ($LASTEXITCODE -eq 0) {
+    $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+    $ciResult = & $testScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $repositoryRoot
+    if ($ciResult.Success) {
         $ciStatus = 'passed'
         Add-Report "## Full CI: passed"
     } elseif ($script:RemediationRequired) {

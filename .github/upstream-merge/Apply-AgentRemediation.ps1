@@ -159,10 +159,11 @@ try {
         throw "Unsupported remediation mode '$($request.mode)'."
     }
 
+    $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
     $buildScript = Join-Path $ToolkitDir 'tools\Start-OpenSSHBuild.ps1'
-    & pwsh -NoProfile -File $buildScript -Configuration Release -Architecture $request.architecture 2>&1 |
-        ForEach-Object { Write-Host "    [build] $_" }
-    if ($LASTEXITCODE -ne 0) {
+    $buildResult = & $buildScript -Configuration Release -Architecture $request.architecture `
+        -RepositoryRoot $repositoryRoot
+    if (-not $buildResult.Success) {
         throw "Release/$($request.architecture) build failed after applying remediation."
     }
 
@@ -181,9 +182,9 @@ try {
 
     if (-not $SkipFinalCI) {
         $testScript = Join-Path $ToolkitDir 'tools\Invoke-OpenSSHTests.ps1'
-        & pwsh -NoProfile -File $testScript -Configuration Release -Architecture $request.architecture 2>&1 |
-            ForEach-Object { Write-Host "    [ci] $_" }
-        if ($LASTEXITCODE -eq 0) {
+        $ciResult = & $testScript -Configuration Release -Architecture $request.architecture `
+            -RepositoryRoot $repositoryRoot
+        if ($ciResult.Success) {
             $ciStatus = 'passed'
             Add-Report "## Full CI: passed"
         } else {

@@ -282,6 +282,11 @@ jobs:
             Write-Host '::warning::vnext was not pushed; the report artifact is the handoff.'
             exit 0
           }
+          $ahead = git rev-list --count "origin/$env:TARGET_BRANCH..origin/$env:VNEXT_BRANCH"
+          if ($LASTEXITCODE -ne 0 -or [int]$ahead -eq 0) {
+            Write-Host '::warning::vnext has no commits beyond the target branch; no pull request can be opened.'
+            exit 0
+          }
           $body = (Test-Path $env:REPORT_PATH) ? (Get-Content -Raw $env:REPORT_PATH) : 'No report produced.'
           $flag = ($env:NEEDS_HUMAN -eq 'true') ? 'ATTENTION NEEDED' : 'ready for review'
           $title = "Weekly upstream merge into $env:VNEXT_BRANCH (CI: $env:CI_STATUS) - $flag"
