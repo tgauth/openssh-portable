@@ -124,7 +124,9 @@ The continuation job always treats the bundle as untrusted. It:
    authoritative Windows Release build, and parses and uploads its diagnostic
    log.
 7. Pushes only after validation succeeds.
-8. Runs the full CI suite and updates the review PR.
+8. Defers full CI and updates the review PR. A later dispatch resumes from the
+   repaired `vnext` head and runs full CI once its deterministic batch loop
+   completes without another remediation handoff.
 
 The workflow permits one agentic remediation boundary per run. After a
 successful remediation, any additional upstream batches are picked up by the

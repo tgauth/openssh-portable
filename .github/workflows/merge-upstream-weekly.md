@@ -222,7 +222,6 @@ jobs:
       VNEXT_BRANCH: vnext
       TARGET_BRANCH: merge-v10.6P1
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
-      INPUT_SKIP_FINAL_CI: ${{ inputs.skip_final_ci || false }}
     steps:
       - name: Checkout workflow branch
         uses: actions/checkout@v7
@@ -266,7 +265,6 @@ jobs:
             '-VNextBranch', $env:VNEXT_BRANCH,
             '-TargetBranch', $env:TARGET_BRANCH
           )
-          if ($env:INPUT_SKIP_FINAL_CI -eq 'true') { $args += '-SkipFinalCI' }
           & pwsh -NoProfile -File (Join-Path $env:TOOLKIT_DIR 'Apply-AgentRemediation.ps1') @args
           exit $LASTEXITCODE
 

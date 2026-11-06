@@ -4,17 +4,16 @@ param(
     [Parameter(Mandatory)][string]$ToolkitDir,
     [Parameter(Mandatory)][string]$RequestPath,
     [Parameter(Mandatory)][string]$BundleDir,
-    [Parameter(Mandatory)][string]$ReportPath,
+    [Parameter(Mandatory)]    [string]$ReportPath,
     [string]$OriginRemote = 'origin',
     [string]$VNextBranch = 'vnext',
-    [string]$TargetBranch = 'merge-v10.6P1',
-    [switch]$SkipFinalCI
+    [string]$TargetBranch = 'merge-v10.6P1'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $needsHuman = $false
-$ciStatus = 'skipped'
+$ciStatus = 'deferred'
 $dependenciesReady = $false
 
 function Write-Log {
@@ -241,18 +240,10 @@ try {
         Add-Report (Get-Content -Raw $decisionLog)
     }
 
-    if (-not $SkipFinalCI) {
-        $testScript = Join-Path $ToolkitDir 'tools\Invoke-OpenSSHTests.ps1'
-        $ciResult = & $testScript -Configuration Release -Architecture $request.architecture `
-            -RepositoryRoot $repositoryRoot
-        if ($ciResult.Success) {
-            $ciStatus = 'passed'
-            Add-Report "## Full CI: passed"
-        } else {
-            $ciStatus = 'failed'
-            Mark-NeedsHuman "Full CI failed after the remediation was applied."
-        }
-    }
+    Add-Report ""
+    Add-Report "## Full CI: deferred"
+    Add-Report ""
+    Add-Report "The remediation received the authoritative Release build only. Full CI will run once after a later dispatch completes its deterministic batch loop without remediation."
 } catch {
     Mark-NeedsHuman $_.Exception.Message
     if (Test-Path .git\MERGE_HEAD) {
