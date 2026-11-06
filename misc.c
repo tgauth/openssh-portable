@@ -3525,10 +3525,10 @@ mkdir_path(const char *target, mode_t mode)
 #endif
 
 	/* Work through the path, component-wise */
-	while ((p = strsep(&dir, "/")) && p != '\0') {
-#ifdef WINDOWS
+	while ((p = strsep(&dir, "/"))) {
 		if (*p == '\0')
 			continue;
+#ifdef WINDOWS
 		if (((*path == '\0' || path[strlen(path) - 1] != '/') &&
 		    (strlen(path) != 2 || path[1] != ':') &&
 		    strlcat(path, "/", plen) >= plen) ||

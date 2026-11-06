@@ -1,4 +1,4 @@
-/* $OpenBSD: servconf.c,v 1.458 2026/10/03 00:46:58 djm Exp $ */
+/* $OpenBSD: servconf.c,v 1.459 2026/10/09 10:48:43 dtucker Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -288,7 +288,7 @@ fill_default_server_options(ServerOptions *options)
 		logit("StreamlocalForwarding is not supported on this system");
 	options->allow_streamlocal_forwarding = 0;
 	if (options->fwd_opts.gateway_ports != -1 &&
-	    options->fwd_opts.gateway_ports == 0)
+	    options->fwd_opts.gateway_ports != 0)
 		logit("GatewayPorts is not supported on this system");
 	options->fwd_opts.gateway_ports = 0;
 #endif
@@ -1137,6 +1137,7 @@ static const struct multistate multistate_keepalives[] = {
 	{ "no",				SSH_KEEPALIVES_OFF },
 	{ "transport",			SSH_KEEPALIVES_TRANSPORT },
 	{ "all",			SSH_KEEPALIVES_ALL },
+	{ NULL, -1 }
 };
 static const struct multistate multistate_warnweakcrypto[] = {
 	{ "true",			1 },
