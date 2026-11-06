@@ -60,7 +60,9 @@ jobs:
   prepare:
     name: Prepare deterministic merge
     if: github.repository == 'tgauth/openssh-portable'
-    runs-on: windows-latest
+    # The current build helper supports Visual Studio through 2022. Pin the
+    # runner so windows-latest does not select Visual Studio 18.
+    runs-on: windows-2022
     timeout-minutes: 360
     permissions:
       contents: write
@@ -202,7 +204,8 @@ jobs:
     name: Validate and apply remediation
     needs: [prepare, agent, detection, publish_remediation]
     if: always() && needs.prepare.outputs.remediation_required == 'true'
-    runs-on: windows-latest
+    # Keep remediation validation on the same supported toolchain as prepare.
+    runs-on: windows-2022
     timeout-minutes: 360
     permissions:
       contents: write
@@ -304,7 +307,7 @@ jobs:
           NEEDS_HUMAN: ${{ steps.apply.outputs.needs_human || 'true' }}
         run: |
           if ($env:NEEDS_HUMAN -eq 'true') {
-            Write-Host '::warning::Agentic remediation did not validate; see the report artifact.'
+            Write-Host '::warning::Remediation could not be completed; see the report artifact for the schema, apply, build, or CI failure.'
             exit 1
           }
 

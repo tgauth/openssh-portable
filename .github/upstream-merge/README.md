@@ -111,6 +111,11 @@ The continuation job always treats the bundle as untrusted. It:
 7. Pushes only after validation succeeds.
 8. Runs the full CI suite and updates the review PR.
 
+The trusted preparation and continuation jobs are pinned to `windows-2022`
+because the current OpenSSH build helper supports Visual Studio through 2022.
+Using `windows-latest` may select Visual Studio 18 before the helper recognizes
+that toolchain.
+
 The workflow permits one agentic remediation boundary per run. After a
 successful remediation, any additional upstream batches are picked up by the
 next scheduled or manual run. Runs with no remediation still process up to the
