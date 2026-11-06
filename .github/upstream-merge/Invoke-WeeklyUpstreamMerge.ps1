@@ -283,9 +283,21 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
     try {
         # Group by CI success: each batch ends at an upstream commit whose CI
         # fully passed (safe stopping point).
-        $chunk = & pwsh -NoProfile -File $getGroups `
-            -StartCommit $startSha -EndCommit $endSha -FirstChunkOnly |
+        $groupOutput = @(& pwsh -NoProfile -File $getGroups `
+            -StartCommit $startSha -EndCommit $endSha -FirstChunkOnly -JsonOutput)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Get-CommitGroups exited with code $LASTEXITCODE."
+        }
+        $jsonOutput = $groupOutput |
+            Where-Object { $_ -is [string] -and $_.TrimStart().StartsWith('[') } |
             Select-Object -Last 1
+        if (-not $jsonOutput) {
+            throw "Get-CommitGroups did not return its JSON result."
+        }
+        $chunk = @($jsonOutput | ConvertFrom-Json) | Select-Object -Last 1
+        if ($chunk -and -not ($chunk.PSObject.Properties.Name -contains 'EndCommitFull')) {
+            throw "Get-CommitGroups returned an invalid chunk result."
+        }
     } catch {
         Write-Log "Get-CommitGroups failed: $_" 'ERROR'
         $script:NeedsHuman = $true
@@ -293,7 +305,7 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
         break
     }
 
-    if (-not $chunk -or -not $chunk.EndCommitFull) {
+    if (-not $chunk) {
         Write-Log "No further batch returned; treating as caught up."
         break
     }

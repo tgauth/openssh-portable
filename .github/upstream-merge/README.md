@@ -57,6 +57,9 @@ The preparation job:
    **`merge-v10.6P1`** in `tgauth/openssh-portable`.
 3. Uses [`Get-CommitGroups.ps1`](../tools/Get-CommitGroups.ps1) in its default
    CI-success mode, so every batch ends at an upstream commit whose CI passed.
+   The workflow supplies its trusted GitHub token as `GITHUB_TOKEN`, and
+   `-FirstChunkOnly` scans incrementally until it finds that first endpoint
+   rather than requiring API budget for the entire outstanding range.
 4. Merges up to `max_batches` batches.
 5. Builds batches that change `*.c` or `*.h`.
 6. Stops at the first conflict or build failure and writes

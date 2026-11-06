@@ -79,6 +79,7 @@ jobs:
       TARGET_BRANCH: merge-v10.6P1
       ARCHITECTURE: x64
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+      GITHUB_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
       INPUT_UPSTREAM_REF: ${{ inputs.upstream_ref }}
       INPUT_MAX_BATCHES: ${{ inputs.max_batches || '4' }}
       INPUT_MAX_AGENT_ATTEMPTS: ${{ inputs.max_agent_attempts || '3' }}
