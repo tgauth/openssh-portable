@@ -363,6 +363,8 @@ steps:
       git fetch upstream --prune --tags
       git fetch origin "+refs/heads/vnext:refs/remotes/origin/vnext"
       git checkout --detach "$expected_head"
+      git config --local user.email 'openssh-merge-bot@users.noreply.github.com'
+      git config --local user.name 'OpenSSH Upstream Merge Bot'
       if [ "$mode" = conflicts ]; then
         git merge --no-ff --no-commit "$batch_end" || test -n "$(git diff --name-only --diff-filter=U)"
       fi
