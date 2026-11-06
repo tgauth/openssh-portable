@@ -243,7 +243,7 @@ try {
             Write-Host "  → Bootstrapping vcpkg..." -ForegroundColor Yellow
             Push-Location $resolvedRoot
             try {
-                & $bootstrapScript
+                & $bootstrapScript | Out-Host
                 $bootstrapExit = $LASTEXITCODE
             } finally {
                 Pop-Location
@@ -319,7 +319,7 @@ try {
                     --triplet $triplet `
                     "--x-install-root=$tripletInstallRoot" `
                     --overlay-triplets=$overlayTripletsDir `
-                    --overlay-ports=$overlayPortsDir
+                    --overlay-ports=$overlayPortsDir | Out-Host
                 $exit = $LASTEXITCODE
             } finally {
                 Pop-Location
