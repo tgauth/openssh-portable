@@ -64,10 +64,11 @@ The preparation job:
    `-FirstChunkOnly` scans incrementally until it finds that first endpoint
    rather than requiring API budget for the entire outstanding range.
 5. Merges up to `max_batches` batches.
-6. Installs the manifest-pinned vcpkg dependencies using the GitHub-hosted
-   runner's vcpkg clone, verifies the LibreSSL header, import library, and DLL
-   after installation and immediately around MSBuild, then builds the base sync
-   and batches that change `*.c` or `*.h`.
+6. Enables the same vcpkg MSBuild integration used by the Azure DevOps build,
+   installs the manifest-pinned dependencies using the GitHub-hosted runner's
+   vcpkg clone, verifies the LibreSSL header, import library, and DLL after
+   installation and immediately around MSBuild, then builds the base sync and
+   batches that change `*.c` or `*.h`.
 7. Stops at the first conflict or build failure and writes
    `remediation-request.json`.
 
@@ -118,9 +119,10 @@ The continuation job always treats the bundle as untrusted. It:
 4. In build mode, applies the patch with index and whitespace validation.
 5. Rejects absolute paths, traversal, duplicate paths, unexpected files,
    missing files, unresolved conflicts, and empty patches.
-6. Installs and validates the manifest-pinned vcpkg dependencies, checks them
-   again immediately before and after the authoritative Windows Release build,
-   and parses and uploads its diagnostic log.
+6. Enables vcpkg MSBuild integration, installs and validates the manifest-pinned
+   dependencies, checks them again immediately before and after the
+   authoritative Windows Release build, and parses and uploads its diagnostic
+   log.
 7. Pushes only after validation succeeds.
 8. Runs the full CI suite and updates the review PR.
 

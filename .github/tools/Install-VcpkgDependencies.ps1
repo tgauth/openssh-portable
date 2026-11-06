@@ -10,6 +10,8 @@
     The script:
     - Locates a vcpkg clone (parameter, $env:VCPKG_ROOT, or ..\vcpkg).
     - Optionally bootstraps it (-Bootstrap).
+    - Optionally enables user-wide MSBuild integration (-Integrate) so projects
+      that rely on vcpkg.user.targets receive manifest include/library paths.
     - Verifies the LibreSSL vcpkg.json override matches the FileVersion field
       in vcpkg_overlay_ports/libressl/add-version-file.patch (cross-check).
     - Runs `vcpkg install` from contrib/win32/openssh against the manifest,
@@ -45,6 +47,11 @@
     If specified, runs bootstrap-vcpkg.bat when vcpkg.exe is missing.
     Without this switch, a missing vcpkg.exe is treated as an error.
 
+.PARAMETER Integrate
+    If specified, runs `vcpkg integrate install` before dependency installation.
+    The repository's Azure DevOps build does this, and fresh hosted runners need
+    it so every Visual Studio project imports the manifest dependency paths.
+
 .PARAMETER Clean
     If specified, deletes contrib/win32/openssh/vcpkg_installed before
     installing. Forces a from-scratch install.
@@ -71,10 +78,10 @@
     - Message: Summary message
 
 .EXAMPLE
-    .\Install-VcpkgDependencies.ps1 -Bootstrap
+    .\Install-VcpkgDependencies.ps1 -Bootstrap -Integrate
 
-    First-time setup. Bootstraps vcpkg if needed and installs the x64-custom
-    triplet.
+    First-time CI-style setup. Bootstraps vcpkg if needed, enables MSBuild
+    integration, and installs the x64-custom triplet.
 
 .EXAMPLE
     .\Install-VcpkgDependencies.ps1 -Architecture x64,x86,ARM,ARM64
@@ -89,7 +96,8 @@
 .NOTES
     - Mirrors .azdo/templates/install-vcpkg-dependencies.yml.
     - Must complete before Start-OpenSSHBuild.ps1.
-    - Does not run `vcpkg integrate install`; that is optional and global.
+    - `vcpkg integrate install` is optional because it modifies user-wide
+      MSBuild configuration; trusted CI drivers enable it explicitly.
 #>
 
 param(
@@ -105,6 +113,9 @@ param(
 
     [Parameter(Mandatory=$false)]
     [switch]$Bootstrap,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Integrate,
 
     [Parameter(Mandatory=$false)]
     [switch]$Clean,
@@ -216,7 +227,7 @@ try {
     Write-Host "========================================`n" -ForegroundColor Cyan
 
     # Step 1: Resolve vcpkg root
-    Write-Host "[1/5] Locating vcpkg..." -ForegroundColor Cyan
+    Write-Host "[1/6] Locating vcpkg..." -ForegroundColor Cyan
     $resolvedRoot = Resolve-VcpkgRoot -Explicit $VcpkgRoot -RepoRoot $repoRoot
     if (-not $resolvedRoot) {
         $msg = "vcpkg clone not found. Tried: -VcpkgRoot, `$env:VCPKG_ROOT, `$env:VCPKG_INSTALLATION_ROOT, $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg').`n" +
@@ -233,7 +244,7 @@ try {
     $bootstrapScript = Join-Path $resolvedRoot 'bootstrap-vcpkg.bat'
 
     # Step 2: Bootstrap if needed
-    Write-Host "`n[2/5] Checking vcpkg.exe..." -ForegroundColor Cyan
+    Write-Host "`n[2/6] Checking vcpkg.exe..." -ForegroundColor Cyan
     if (-not (Test-Path -LiteralPath $vcpkgExe)) {
         if ($Bootstrap) {
             if (-not (Test-Path -LiteralPath $bootstrapScript)) {
@@ -271,8 +282,25 @@ try {
     }
     $result.VcpkgExecutable = $vcpkgExe
 
-    # Step 3: LibreSSL version cross-check
-    Write-Host "`n[3/5] Verifying LibreSSL version cross-check..." -ForegroundColor Cyan
+    # Step 3: Optional MSBuild integration
+    Write-Host "`n[3/6] Configuring vcpkg MSBuild integration..." -ForegroundColor Cyan
+    if ($Integrate) {
+        & $vcpkgExe integrate install | Out-Host
+        $integrateExit = $LASTEXITCODE
+        if ($integrateExit -ne 0) {
+            $msg = "vcpkg integrate install failed with exit code $integrateExit"
+            $result.Errors += $msg
+            Write-Host "  ✗ $msg" -ForegroundColor Red
+            $result.Message = 'vcpkg MSBuild integration failed.'
+            return $result
+        }
+        Write-Host "  ✓ vcpkg MSBuild integration enabled" -ForegroundColor Green
+    } else {
+        Write-Host "  ⊘ Skipped (-Integrate not specified)" -ForegroundColor Yellow
+    }
+
+    # Step 4: LibreSSL version cross-check
+    Write-Host "`n[4/6] Verifying LibreSSL version cross-check..." -ForegroundColor Cyan
     if ($SkipVersionCheck) {
         Write-Host "  ⊘ Skipped (-SkipVersionCheck)" -ForegroundColor Yellow
         $result.VersionCheckPassed = $null
@@ -292,16 +320,16 @@ try {
         }
     }
 
-    # Step 4: Optional clean
-    Write-Host "`n[4/5] Preparing vcpkg_installed..." -ForegroundColor Cyan
+    # Step 5: Optional clean
+    Write-Host "`n[5/6] Preparing vcpkg_installed..." -ForegroundColor Cyan
     if ($Clean -and (Test-Path -LiteralPath $installedDir)) {
         Write-Host "  → Removing $installedDir" -ForegroundColor Yellow
         Remove-Item -LiteralPath $installedDir -Recurse -Force
     }
     Write-Host "  ✓ Ready" -ForegroundColor Green
 
-    # Step 5: Install per triplet
-    Write-Host "`n[5/5] Running vcpkg install..." -ForegroundColor Cyan
+    # Step 6: Install per triplet
+    Write-Host "`n[6/6] Running vcpkg install..." -ForegroundColor Cyan
     $previousBinarySources = $env:VCPKG_BINARY_SOURCES
     if (-not [string]::IsNullOrWhiteSpace($BinaryCache)) {
         if (-not (Test-Path -LiteralPath $BinaryCache)) {

@@ -75,6 +75,7 @@ function Initialize-BuildDependencies {
         Architecture = @($Architecture)
         RepositoryRoot = $RepositoryRoot
         Bootstrap = $true
+        Integrate = $true
     }
     if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
         $installParams.BinaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
