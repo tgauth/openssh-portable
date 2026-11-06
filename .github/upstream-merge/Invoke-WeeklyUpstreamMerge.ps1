@@ -196,6 +196,16 @@ function Invoke-ValidatedBuild {
         return $dependencyResult
     }
 
+    $dependencyTestScript = Get-ToolPath 'Test-VcpkgDependencies.ps1'
+    $preBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $preBuildDependencies.Success) {
+        return [pscustomobject]@{
+            Success = $false
+            Diagnostic = "vcpkg dependencies disappeared or changed after installation and before MSBuild.`n$($preBuildDependencies.Diagnostic)"
+        }
+    }
+
     $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
     $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
         -RepositoryRoot $RepositoryRoot
@@ -217,10 +227,17 @@ function Invoke-ValidatedBuild {
     if (@($analysisResult.Warnings).Count -gt 0) {
         $diagnostics.Add("Build warnings: $(@($analysisResult.Warnings).Count)")
     }
+    $postBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $postBuildDependencies.Success) {
+        $diagnostics.Add("vcpkg dependencies changed or disappeared during MSBuild:`n$($postBuildDependencies.Diagnostic)")
+    } else {
+        $diagnostics.Add("vcpkg dependencies remained present through MSBuild.")
+    }
     $diagnostics.Add("Build log: $($buildResult.LogFile)")
 
     return [pscustomobject]@{
-        Success = [bool]$buildResult.Success -and [bool]$analysisResult.Success
+        Success = [bool]$buildResult.Success -and [bool]$analysisResult.Success -and [bool]$postBuildDependencies.Success
         Diagnostic = ($diagnostics -join "`n")
         LogFile = $buildResult.LogFile
         Analysis = $analysisResult

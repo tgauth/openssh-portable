@@ -15,10 +15,12 @@
     - Runs `vcpkg install` from contrib/win32/openssh against the manifest,
       using --overlay-triplets=.\vcpkg_triplets and
       --overlay-ports=.\vcpkg_overlay_ports.
-    - Verifies that vcpkg_installed/<triplet>/bin/libcrypto.dll was produced.
+    - Verifies that the nested triplet layout contains the LibreSSL header,
+      import library, and runtime DLL consumed by the Visual Studio build.
 
-    Output is consumed by OpenSSHBuildHelper.psm1 which reads from
-    contrib\win32\openssh\vcpkg_installed\<triplet>-custom\<triplet>-custom\bin\.
+    Output is consumed by the Visual Studio projects and
+    OpenSSHBuildHelper.psm1 from
+    contrib\win32\openssh\vcpkg_installed\<triplet>\<triplet>\.
 
 .PARAMETER Architecture
     One or more architectures to install. Each value maps to the
@@ -134,6 +136,7 @@ $overlayPortsDir = Join-Path $opensshDir 'vcpkg_overlay_ports'
 $overlayTripletsDir = Join-Path $opensshDir 'vcpkg_triplets'
 $manifestPath = Join-Path $opensshDir 'vcpkg.json'
 $libresslPatchPath = Join-Path $overlayPortsDir 'libressl\add-version-file.patch'
+$dependencyTestPath = Join-Path $scriptRoot 'Test-VcpkgDependencies.ps1'
 
 $result = @{
     Success = $false
@@ -332,13 +335,15 @@ try {
                 continue
             }
 
-            # Verify expected artifact
-            $libcryptoPath = Join-Path $installedDir "$triplet\$triplet\bin\libcrypto.dll"
-            if (Test-Path -LiteralPath $libcryptoPath) {
-                Write-Host "  ✓ $triplet installed (libcrypto.dll present)" -ForegroundColor Green
+            if (-not (Test-Path -LiteralPath $dependencyTestPath -PathType Leaf)) {
+                throw "Dependency validation script not found at $dependencyTestPath"
+            }
+            $dependencyCheck = & $dependencyTestPath -Architecture $arch -RepositoryRoot $repoRoot
+            if ($dependencyCheck.Success) {
+                Write-Host "  ✓ $triplet installed (LibreSSL header, library, and DLL present)" -ForegroundColor Green
                 $result.TripletsInstalled += $triplet
             } else {
-                $msg = "vcpkg install for $triplet completed but libcrypto.dll not found at $libcryptoPath"
+                $msg = "vcpkg install for $triplet completed but required build artifacts did not validate.`n$($dependencyCheck.Diagnostic)"
                 $result.Errors += $msg
                 Write-Host "  ✗ $msg" -ForegroundColor Red
             }

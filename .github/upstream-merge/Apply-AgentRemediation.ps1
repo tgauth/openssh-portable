@@ -98,6 +98,13 @@ function Invoke-ValidatedBuild {
 
     Initialize-BuildDependencies -RepositoryRoot $RepositoryRoot -Architecture $Architecture
 
+    $dependencyTestScript = Join-Path $ToolkitDir 'tools\Test-VcpkgDependencies.ps1'
+    $preBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $preBuildDependencies.Success) {
+        throw "vcpkg dependencies disappeared or changed after installation and before MSBuild.`n$($preBuildDependencies.Diagnostic)"
+    }
+
     $buildScript = Join-Path $ToolkitDir 'tools\Start-OpenSSHBuild.ps1'
     $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
         -RepositoryRoot $RepositoryRoot
@@ -105,9 +112,14 @@ function Invoke-ValidatedBuild {
     $analysisResult = & $analysisScript -Configuration Release -Architecture $Architecture `
         -RepositoryRoot $RepositoryRoot -LogFile $buildResult.LogFile
 
-    if (-not $buildResult.Success -or -not $analysisResult.Success) {
+    $postBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $buildResult.Success -or -not $analysisResult.Success -or -not $postBuildDependencies.Success) {
         $errors = @($analysisResult.Errors | Select-Object -First 30 | ForEach-Object { $_.RawLine })
         $details = if ($errors.Count -gt 0) { $errors -join "`n" } else { [string]$buildResult.Message }
+        if (-not $postBuildDependencies.Success) {
+            $details += "`nvcpkg dependencies changed or disappeared during MSBuild:`n$($postBuildDependencies.Diagnostic)"
+        }
         throw "Release/$Architecture build failed after applying remediation.`n$details`nBuild log: $($buildResult.LogFile)"
     }
 }
