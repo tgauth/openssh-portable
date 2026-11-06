@@ -7,7 +7,7 @@ param(
     [Parameter(Mandatory)][string]$ReportPath,
     [string]$OriginRemote = 'origin',
     [string]$VNextBranch = 'vnext',
-    [string]$TargetBranch = 'latestw_all',
+    [string]$TargetBranch = 'merge-v10.6P1',
     [switch]$SkipFinalCI
 )
 

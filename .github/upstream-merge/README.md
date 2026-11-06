@@ -4,6 +4,13 @@ This folder implements the scheduled upstream integration flow as a
 **GitHub Agentic Workflow** with deterministic Windows preparation and
 validation around one bounded remediation step.
 
+The current deployment is deliberately limited to
+`tgauth/openssh-portable`. It creates or advances `vnext` from
+`merge-v10.6P1`, the fork branch behind
+[PowerShell/openssh-portable#883](https://github.com/PowerShell/openssh-portable/pull/883).
+The workflow opens its review PR inside the fork, from `vnext` back to
+`merge-v10.6P1`; it does not update the open PowerShell repository PR.
+
 | File | Purpose |
 |---|---|
 | [`../workflows/merge-upstream-weekly.md`](../workflows/merge-upstream-weekly.md) | Editable Agentic Workflow source: schedule, job graph, tools, security boundary, and remediation prompt. |
@@ -47,7 +54,7 @@ The preparation job:
 
 1. Fetches `origin` and `upstream`.
 2. Creates or reuses the long-lived **`vnext`** branch based on
-   **`latestw_all`**.
+   **`merge-v10.6P1`** in `tgauth/openssh-portable`.
 3. Uses [`Get-CommitGroups.ps1`](../tools/Get-CommitGroups.ps1) in its default
    CI-success mode, so every batch ends at an upstream commit whose CI passed.
 4. Merges up to `max_batches` batches.
@@ -111,6 +118,11 @@ configured batch cap.
 The Agentic Workflow uses `copilot-requests: write` for managed Copilot
 inference. It no longer installs Copilot CLI manually and no longer uses
 `--allow-all-tools`.
+
+The preparation job is guarded by
+`github.repository == 'tgauth/openssh-portable'`. This prevents the testing
+configuration from pushing branches or opening PRs if the workflow is copied
+to `PowerShell/openssh-portable`.
 
 | Secret | Used for | Agent access |
 |---|---|---|

@@ -59,6 +59,7 @@ checkout:
 jobs:
   prepare:
     name: Prepare deterministic merge
+    if: github.repository == 'tgauth/openssh-portable'
     runs-on: windows-latest
     timeout-minutes: 360
     permissions:
@@ -75,7 +76,7 @@ jobs:
       UPSTREAM_REMOTE: upstream
       UPSTREAM_URL: https://github.com/openssh/openssh-portable.git
       VNEXT_BRANCH: vnext
-      TARGET_BRANCH: latestw_all
+      TARGET_BRANCH: merge-v10.6P1
       ARCHITECTURE: x64
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
       INPUT_UPSTREAM_REF: ${{ inputs.upstream_ref }}
@@ -207,7 +208,7 @@ jobs:
       pull-requests: write
     env:
       VNEXT_BRANCH: vnext
-      TARGET_BRANCH: latestw_all
+      TARGET_BRANCH: merge-v10.6P1
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
       INPUT_SKIP_FINAL_CI: ${{ inputs.skip_final_ci || false }}
     steps:

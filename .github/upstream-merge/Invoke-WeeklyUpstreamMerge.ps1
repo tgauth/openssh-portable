@@ -11,7 +11,7 @@
     High level flow (one scheduled run):
       1. Fetch upstream + origin.
       2. Ensure the long-lived `vnext` branch exists (created off the target
-         branch, e.g. latestw_all, on first run; reused thereafter).
+         release branch on first run; reused thereafter).
       3. Repeatedly:
            a. Ask Get-CommitGroups for the next mergeable batch of upstream
               commits (CI-success grouping) that is not yet on `vnext`.
@@ -50,7 +50,7 @@ param(
     [string]$VNextBranch = 'vnext',
 
     # Branch vnext is created from on first run and that the review PR targets.
-    [string]$TargetBranch = 'latestw_all',
+    [string]$TargetBranch = 'merge-v10.6P1',
 
     # origin remote (the fork we push vnext to).
     [string]$OriginRemote = 'origin',
