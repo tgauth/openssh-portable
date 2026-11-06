@@ -60,9 +60,7 @@ jobs:
   prepare:
     name: Prepare deterministic merge
     if: github.repository == 'tgauth/openssh-portable'
-    # The current build helper supports Visual Studio through 2022. Pin the
-    # runner so windows-latest does not select Visual Studio 18.
-    runs-on: windows-2022
+    runs-on: windows-latest
     timeout-minutes: 360
     permissions:
       contents: write
@@ -204,8 +202,7 @@ jobs:
     name: Validate and apply remediation
     needs: [prepare, agent, detection, publish_remediation]
     if: always() && needs.prepare.outputs.remediation_required == 'true'
-    # Keep remediation validation on the same supported toolchain as prepare.
-    runs-on: windows-2022
+    runs-on: windows-latest
     timeout-minutes: 360
     permissions:
       contents: write
