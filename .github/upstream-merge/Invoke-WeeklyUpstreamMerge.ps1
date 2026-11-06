@@ -104,6 +104,7 @@ $script:BatchesMerged = 0
 $script:BaseSynced = $false
 $script:CanMergeUpstream = $true
 $script:RemediationRequired = $false
+$script:DependenciesReady = $false
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
@@ -151,6 +152,79 @@ function Get-ToolPath {
     $p = Join-Path $ToolkitDir "tools\$Name"
     if (-not (Test-Path $p)) { throw "Required tool script not found in toolkit: $p" }
     return $p
+}
+
+function Initialize-BuildDependencies {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+
+    if ($script:DependenciesReady) {
+        return [pscustomobject]@{ Success = $true; Diagnostic = '' }
+    }
+
+    Write-Log "Installing vcpkg dependencies for $Architecture."
+    $installScript = Get-ToolPath 'Install-VcpkgDependencies.ps1'
+    $installParams = @{
+        Architecture = @($Architecture)
+        RepositoryRoot = $RepositoryRoot
+        Bootstrap = $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+        $installParams.BinaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+    }
+
+    $installResult = & $installScript @installParams
+    if (-not $installResult.Success) {
+        $details = @($installResult.Errors) -join "`n"
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            $details = [string]$installResult.Message
+        }
+        return [pscustomobject]@{
+            Success = $false
+            Diagnostic = "vcpkg dependency installation failed.`n$details"
+        }
+    }
+
+    $script:DependenciesReady = $true
+    return [pscustomobject]@{ Success = $true; Diagnostic = '' }
+}
+
+function Invoke-ValidatedBuild {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+
+    $dependencyResult = Initialize-BuildDependencies -RepositoryRoot $RepositoryRoot
+    if (-not $dependencyResult.Success) {
+        return $dependencyResult
+    }
+
+    $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
+    $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+
+    $analysisScript = Get-ToolPath 'Test-OpenSSHBuild.ps1'
+    $analysisResult = & $analysisScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot -LogFile $buildResult.LogFile
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    foreach ($errorRecord in @($analysisResult.Errors | Select-Object -First 30)) {
+        $diagnostics.Add([string]$errorRecord.RawLine)
+    }
+    if ($diagnostics.Count -eq 0 -and -not $buildResult.Success) {
+        $diagnostics.Add([string]$buildResult.Message)
+    }
+    if (@($analysisResult.Errors).Count -gt 30) {
+        $diagnostics.Add("... $(@($analysisResult.Errors).Count - 30) additional build error(s) omitted.")
+    }
+    if (@($analysisResult.Warnings).Count -gt 0) {
+        $diagnostics.Add("Build warnings: $(@($analysisResult.Warnings).Count)")
+    }
+    $diagnostics.Add("Build log: $($buildResult.LogFile)")
+
+    return [pscustomobject]@{
+        Success = [bool]$buildResult.Success -and [bool]$analysisResult.Success
+        Diagnostic = ($diagnostics -join "`n")
+        LogFile = $buildResult.LogFile
+        Analysis = $analysisResult
+    }
 }
 
 function Test-CodeImpact {
@@ -304,14 +378,16 @@ if ($LASTEXITCODE -ne 0) {
 
             if (Test-CodeImpact "$headBeforeBaseSync..HEAD") {
                 Write-Log "Base sync touched C/H sources; building for validation."
-                $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
                 $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
-                $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
-                    -RepositoryRoot $repositoryRoot
+                $buildResult = Invoke-ValidatedBuild -RepositoryRoot $repositoryRoot
                 if (-not $buildResult.Success) {
                     $script:NeedsHuman = $true
                     $script:CanMergeUpstream = $false
                     Add-Report "- Base sync Release/$Architecture build failed. **Human help needed.**"
+                    Add-Report ""
+                    Add-Report '```text'
+                    Add-Report $buildResult.Diagnostic
+                    Add-Report '```'
                 } else {
                     & git checkout -- 'contrib/win32/openssh/paths.targets' 2>$null
                     Add-Report "- Base sync Release/$Architecture build succeeded."
@@ -413,17 +489,15 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
     # ---- Build validation (only if compiled sources changed) --------------
     if (Test-CodeImpact $rangeForImpact) {
         Write-Log "Batch #$i touched C/H sources; building for validation."
-        $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
         $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
-        $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
-            -RepositoryRoot $repositoryRoot
+        $buildResult = Invoke-ValidatedBuild -RepositoryRoot $repositoryRoot
         $built = [bool]$buildResult.Success
 
         if (-not $built) {
             Write-Log "Build failed; preparing agentic remediation." 'WARN'
             $script:BatchesMerged++
             New-RemediationRequest -Mode build -Batch $i -ExpectedHead (Resolve-Sha HEAD) `
-                -BatchStart $startSha -BatchEnd $batchEnd -BuildLog ($buildOutput -join "`n")
+                -BatchStart $startSha -BatchEnd $batchEnd -BuildLog $buildResult.Diagnostic
             if ($SkipAgent) {
                 Add-Report "- Build failed and agent execution was skipped. **Human help needed.**"
             } else {

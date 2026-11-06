@@ -64,12 +64,17 @@ The preparation job:
    `-FirstChunkOnly` scans incrementally until it finds that first endpoint
    rather than requiring API budget for the entire outstanding range.
 5. Merges up to `max_batches` batches.
-6. Builds the base sync and batches that change `*.c` or `*.h`.
+6. Installs the manifest-pinned vcpkg dependencies using the GitHub-hosted
+   runner's vcpkg clone, then builds the base sync and batches that change
+   `*.c` or `*.h`.
 7. Stops at the first conflict or build failure and writes
    `remediation-request.json`.
 
 If no remediation is needed, preparation runs the full CI suite, pushes
 `vnext`, uploads the report, and opens or updates the human-review PR.
+Every attempted build is checked with `Test-OpenSSHBuild.ps1`; parsed errors
+are included in the report or remediation request, and the diagnostic MSBuild
+log is uploaded as a separate workflow artifact.
 
 If remediation is required, preparation pushes the exact `vnext` head first.
 The request records immutable values including `expectedHead`, `batchEnd`,
@@ -110,7 +115,8 @@ The continuation job always treats the bundle as untrusted. It:
 4. In build mode, applies the patch with index and whitespace validation.
 5. Rejects absolute paths, traversal, duplicate paths, unexpected files,
    missing files, unresolved conflicts, and empty patches.
-6. Runs the authoritative Windows Release build.
+6. Installs the manifest-pinned vcpkg dependencies and runs the authoritative
+   Windows Release build, parsing and uploading its diagnostic log.
 7. Pushes only after validation succeeds.
 8. Runs the full CI suite and updates the review PR.
 

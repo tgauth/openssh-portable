@@ -148,6 +148,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Upload preparation build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-merge-preparation-build-log
+          path: ${{ github.workspace }}/contrib/win32/openssh/OpenSSHRelease*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Reject unexpected preparation failure
         if: always() && steps.merge.outcome == 'failure' && steps.merge.outputs.needs_human != 'true'
         shell: pwsh
@@ -268,6 +277,15 @@ jobs:
           name: weekly-upstream-merge-report
           path: ${{ runner.temp }}/merge-input/merge-report.md
           if-no-files-found: warn
+
+      - name: Upload remediation build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-merge-remediation-build-log
+          path: ${{ github.workspace }}/contrib/win32/openssh/OpenSSHRelease*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Open or update review pull request
         if: always()

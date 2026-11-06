@@ -26,10 +26,17 @@
     default of Start-OpenSSHBuild.ps1. Pass multiple values to install for
     several triplets in one run, matching what CI builds.
 
+.PARAMETER RepositoryRoot
+    Repository root whose manifest and vcpkg_installed directory should be
+    used. Defaults to the repository containing this script. Supply this when
+    the tool is staged outside the checkout, such as a GitHub Actions runner
+    temporary directory.
+
 .PARAMETER VcpkgRoot
     Path to a vcpkg clone. If omitted, the script tries (in order):
         1. $env:VCPKG_ROOT
-        2. ..\vcpkg relative to the repo root
+        2. $env:VCPKG_INSTALLATION_ROOT (GitHub-hosted runners)
+        3. ..\vcpkg relative to the repo root
     If neither exists, the script errors with a clone command.
 
 .PARAMETER Bootstrap
@@ -89,6 +96,9 @@ param(
     [string[]]$Architecture = @('x64'),
 
     [Parameter(Mandatory=$false)]
+    [string]$RepositoryRoot,
+
+    [Parameter(Mandatory=$false)]
     [string]$VcpkgRoot,
 
     [Parameter(Mandatory=$false)]
@@ -110,7 +120,14 @@ $scriptRoot = $PSScriptRoot
 if ([string]::IsNullOrEmpty($scriptRoot)) {
     $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
-$repoRoot = (Get-Item $scriptRoot).Parent.Parent.FullName
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $repoRoot = (Get-Item $scriptRoot).Parent.Parent.FullName
+} else {
+    if (-not (Test-Path -LiteralPath $RepositoryRoot -PathType Container)) {
+        throw "RepositoryRoot does not exist: $RepositoryRoot"
+    }
+    $repoRoot = (Resolve-Path -LiteralPath $RepositoryRoot).Path
+}
 $opensshDir = Join-Path $repoRoot 'contrib\win32\openssh'
 $installedDir = Join-Path $opensshDir 'vcpkg_installed'
 $overlayPortsDir = Join-Path $opensshDir 'vcpkg_overlay_ports'
@@ -138,6 +155,9 @@ function Resolve-VcpkgRoot {
     }
     if (-not [string]::IsNullOrWhiteSpace($env:VCPKG_ROOT)) {
         $candidates += $env:VCPKG_ROOT
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:VCPKG_INSTALLATION_ROOT)) {
+        $candidates += $env:VCPKG_INSTALLATION_ROOT
     }
     $candidates += (Join-Path (Split-Path -Parent $RepoRoot) 'vcpkg')
 
@@ -196,7 +216,7 @@ try {
     Write-Host "[1/5] Locating vcpkg..." -ForegroundColor Cyan
     $resolvedRoot = Resolve-VcpkgRoot -Explicit $VcpkgRoot -RepoRoot $repoRoot
     if (-not $resolvedRoot) {
-        $msg = "vcpkg clone not found. Tried: -VcpkgRoot, `$env:VCPKG_ROOT, $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg').`n" +
+        $msg = "vcpkg clone not found. Tried: -VcpkgRoot, `$env:VCPKG_ROOT, `$env:VCPKG_INSTALLATION_ROOT, $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg').`n" +
                "Clone it with: git clone https://github.com/Microsoft/vcpkg.git $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg')"
         $result.Errors += $msg
         Write-Host "  ✗ $msg" -ForegroundColor Red
@@ -291,11 +311,13 @@ try {
     try {
         foreach ($arch in $Architecture) {
             $triplet = "$($arch.ToLowerInvariant())-custom"
+            $tripletInstallRoot = Join-Path $installedDir $triplet
             Write-Host "`n  → Installing triplet: $triplet" -ForegroundColor Yellow
             Push-Location $opensshDir
             try {
                 & $vcpkgExe install `
                     --triplet $triplet `
+                    "--x-install-root=$tripletInstallRoot" `
                     --overlay-triplets=$overlayTripletsDir `
                     --overlay-ports=$overlayPortsDir
                 $exit = $LASTEXITCODE

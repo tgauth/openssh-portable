@@ -15,6 +15,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $needsHuman = $false
 $ciStatus = 'skipped'
+$dependenciesReady = $false
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
@@ -57,6 +58,58 @@ function Mark-NeedsHuman {
     Add-Report "## Agentic remediation: NEEDS HUMAN"
     Add-Report ""
     Add-Report $Reason
+}
+
+function Initialize-BuildDependencies {
+    param(
+        [Parameter(Mandatory)][string]$RepositoryRoot,
+        [Parameter(Mandatory)][string]$Architecture
+    )
+
+    if ($script:dependenciesReady) {
+        return
+    }
+
+    $installScript = Join-Path $ToolkitDir 'tools\Install-VcpkgDependencies.ps1'
+    $installParams = @{
+        Architecture = @($Architecture)
+        RepositoryRoot = $RepositoryRoot
+        Bootstrap = $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+        $installParams.BinaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+    }
+    $installResult = & $installScript @installParams
+    if (-not $installResult.Success) {
+        $details = @($installResult.Errors) -join "`n"
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            $details = [string]$installResult.Message
+        }
+        throw "vcpkg dependency installation failed.`n$details"
+    }
+    $script:dependenciesReady = $true
+}
+
+function Invoke-ValidatedBuild {
+    param(
+        [Parameter(Mandatory)][string]$RepositoryRoot,
+        [Parameter(Mandatory)][string]$Architecture
+    )
+
+    Initialize-BuildDependencies -RepositoryRoot $RepositoryRoot -Architecture $Architecture
+
+    $buildScript = Join-Path $ToolkitDir 'tools\Start-OpenSSHBuild.ps1'
+    $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    $analysisScript = Join-Path $ToolkitDir 'tools\Test-OpenSSHBuild.ps1'
+    $analysisResult = & $analysisScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot -LogFile $buildResult.LogFile
+
+    if (-not $buildResult.Success -or -not $analysisResult.Success) {
+        $errors = @($analysisResult.Errors | Select-Object -First 30 | ForEach-Object { $_.RawLine })
+        $details = if ($errors.Count -gt 0) { $errors -join "`n" } else { [string]$buildResult.Message }
+        throw "Release/$Architecture build failed after applying remediation.`n$details`nBuild log: $($buildResult.LogFile)"
+    }
 }
 
 if (-not (Test-Path $ReportPath)) {
@@ -160,12 +213,7 @@ try {
     }
 
     $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
-    $buildScript = Join-Path $ToolkitDir 'tools\Start-OpenSSHBuild.ps1'
-    $buildResult = & $buildScript -Configuration Release -Architecture $request.architecture `
-        -RepositoryRoot $repositoryRoot
-    if (-not $buildResult.Success) {
-        throw "Release/$($request.architecture) build failed after applying remediation."
-    }
+    Invoke-ValidatedBuild -RepositoryRoot $repositoryRoot -Architecture $request.architecture
 
     Assert-Git push $OriginRemote "${VNextBranch}:${VNextBranch}"
     Add-Report ""
