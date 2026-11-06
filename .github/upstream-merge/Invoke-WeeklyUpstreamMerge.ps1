@@ -11,7 +11,8 @@
     High level flow (one scheduled run):
       1. Fetch upstream + origin.
       2. Ensure the long-lived `vnext` branch exists (created off the target
-         release branch on first run; reused thereafter).
+         release branch on first run), then merge the current Windows-fork
+         base into it.
       3. Repeatedly:
            a. Ask Get-CommitGroups for the next mergeable batch of upstream
               commits (CI-success grouping) that is not yet on `vnext`.
@@ -51,6 +52,10 @@ param(
 
     # Branch vnext is created from on first run and that the review PR targets.
     [string]$TargetBranch = 'merge-v10.6P1',
+
+    # Fork branch whose latest Windows build and compatibility changes are
+    # merged into an existing vnext branch before upstream batches are added.
+    [string]$BaseSyncBranch = 'latestw_all',
 
     # origin remote (the fork we push vnext to).
     [string]$OriginRemote = 'origin',
@@ -96,6 +101,8 @@ $ErrorActionPreference = 'Stop'
 $script:Report = [System.Text.StringBuilder]::new()
 $script:NeedsHuman = $false
 $script:BatchesMerged = 0
+$script:BaseSynced = $false
+$script:CanMergeUpstream = $true
 $script:RemediationRequired = $false
 
 function Write-Log {
@@ -219,7 +226,7 @@ function New-RemediationRequest {
 # --------------------------------------------------------------------------
 
 Write-Log "Weekly upstream merge starting."
-Write-Log "Upstream=$UpstreamRemote  Target=$TargetBranch  VNext=$VNextBranch  MaxBatches=$MaxBatchesPerRun  MaxAgentAttempts=$MaxAgentAttempts"
+Write-Log "Upstream=$UpstreamRemote  Target=$TargetBranch  BaseSync=$BaseSyncBranch  VNext=$VNextBranch  MaxBatches=$MaxBatchesPerRun  MaxAgentAttempts=$MaxAgentAttempts"
 
 # Identity for merge/commit operations in CI.
 if (-not (& git config user.email)) {
@@ -255,20 +262,78 @@ if ($LASTEXITCODE -eq 0) {
     Assert-Git checkout -B $VNextBranch $base | Out-Null
 }
 
+Add-Report "## Weekly upstream merge run"
+Add-Report ""
+Add-Report "- Upstream endpoint: ``$UpstreamRef`` (``$($endSha.Substring(0,12))``)"
+Add-Report "- Target branch: ``$TargetBranch``"
+Add-Report "- Base sync branch: ``$BaseSyncBranch``"
+Add-Report "- Integration branch: ``$VNextBranch``"
+Add-Report ""
+
+# Keep the long-lived integration branch current with Windows-fork changes
+# that landed after vnext was first created. This is intentionally separate
+# from TargetBranch during fork testing, where the review PR still targets the
+# in-progress release branch.
+$baseSyncRemote = "$OriginRemote/$BaseSyncBranch"
+& git rev-parse --verify --quiet $baseSyncRemote | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    $script:NeedsHuman = $true
+    $script:CanMergeUpstream = $false
+    Add-Report "> Base sync branch ``$baseSyncRemote`` was not found. **Human help needed.**"
+} else {
+    & git merge-base --is-ancestor $baseSyncRemote HEAD
+    if ($LASTEXITCODE -eq 0) {
+        Write-Log "$VNextBranch already contains $baseSyncRemote."
+        Add-Report "- Base sync: already current with ``$baseSyncRemote``."
+    } else {
+        $headBeforeBaseSync = Resolve-Sha HEAD
+        Write-Log "Merging $baseSyncRemote into $VNextBranch before upstream batches."
+        $baseSync = Invoke-Git merge '--no-ff' '--no-edit' $baseSyncRemote
+        if ($baseSync.ExitCode -ne 0) {
+            if (Test-ConflictsRemain) {
+                Invoke-Git merge --abort | Out-Null
+                Add-Report "> Merging ``$baseSyncRemote`` into ``$VNextBranch`` produced conflicts. **Human help needed.**"
+            } else {
+                Add-Report "> Merging ``$baseSyncRemote`` into ``$VNextBranch`` failed: $($baseSync.Output)"
+            }
+            $script:NeedsHuman = $true
+            $script:CanMergeUpstream = $false
+        } else {
+            $script:BaseSynced = $true
+            Add-Report "- Base sync: merged ``$baseSyncRemote``."
+
+            if (Test-CodeImpact "$headBeforeBaseSync..HEAD") {
+                Write-Log "Base sync touched C/H sources; building for validation."
+                $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
+                $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+                $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
+                    -RepositoryRoot $repositoryRoot
+                if (-not $buildResult.Success) {
+                    $script:NeedsHuman = $true
+                    $script:CanMergeUpstream = $false
+                    Add-Report "- Base sync Release/$Architecture build failed. **Human help needed.**"
+                } else {
+                    & git checkout -- 'contrib/win32/openssh/paths.targets' 2>$null
+                    Add-Report "- Base sync Release/$Architecture build succeeded."
+                }
+            } else {
+                Add-Report "- Base sync changed no compiled sources; build validation skipped."
+            }
+        }
+    }
+}
+Add-Report ""
+
 # --------------------------------------------------------------------------
 # Batch merge loop
 # --------------------------------------------------------------------------
 
 $getGroups = Get-ToolPath 'Get-CommitGroups.ps1'
 
-Add-Report "## Weekly upstream merge run"
-Add-Report ""
-Add-Report "- Upstream endpoint: ``$UpstreamRef`` (``$($endSha.Substring(0,12))``)"
-Add-Report "- Target branch: ``$TargetBranch``"
-Add-Report "- Integration branch: ``$VNextBranch``"
-Add-Report ""
-
 for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
+    if (-not $script:CanMergeUpstream) {
+        break
+    }
 
     # Last upstream commit already on vnext = merge-base(vnext, upstreamRef).
     $startSha = (Assert-Git merge-base $VNextBranch $endSha).Trim()
@@ -389,8 +454,8 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
 # --------------------------------------------------------------------------
 
 $ciStatus = 'skipped'
-if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:RemediationRequired -and -not $SkipFinalCI) {
-    Write-Log "Running full CI suite after merging $($script:BatchesMerged) batch(es)."
+if (($script:BatchesMerged -gt 0 -or $script:BaseSynced) -and -not $script:NeedsHuman -and -not $script:RemediationRequired -and -not $SkipFinalCI) {
+    Write-Log "Running full CI suite after integrating base updates and $($script:BatchesMerged) upstream batch(es)."
     $testScript = Get-ToolPath 'Invoke-OpenSSHTests.ps1'
     $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
     $ciResult = & $testScript -Configuration Release -Architecture $Architecture `
@@ -407,8 +472,8 @@ if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:R
     }
 } elseif ($SkipFinalCI) {
     Add-Report "## Full CI: skipped (-SkipFinalCI)"
-} elseif ($script:BatchesMerged -eq 0) {
-    Add-Report "## Full CI: skipped (no batches merged)"
+} elseif ($script:BatchesMerged -eq 0 -and -not $script:BaseSynced) {
+    Add-Report "## Full CI: skipped (no changes integrated)"
 } else {
     Add-Report "## Full CI: skipped (earlier step needs human attention)"
 }
@@ -417,7 +482,7 @@ if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:R
 # Push + report
 # --------------------------------------------------------------------------
 
-if ($script:BatchesMerged -gt 0 -or $script:RemediationRequired) {
+if ($script:BatchesMerged -gt 0 -or ($script:BaseSynced -and -not $script:NeedsHuman) -or $script:RemediationRequired) {
     Write-Log "Pushing $VNextBranch to $OriginRemote."
     $push = Invoke-Git push $OriginRemote "${VNextBranch}:${VNextBranch}"
     if ($push.ExitCode -ne 0) {

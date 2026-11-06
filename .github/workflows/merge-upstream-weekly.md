@@ -77,6 +77,7 @@ jobs:
       UPSTREAM_URL: https://github.com/openssh/openssh-portable.git
       VNEXT_BRANCH: vnext
       TARGET_BRANCH: merge-v10.6P1
+      BASE_SYNC_BRANCH: latestw_all
       ARCHITECTURE: x64
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
       GITHUB_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
@@ -123,6 +124,7 @@ jobs:
             '-UpstreamRemote', $env:UPSTREAM_REMOTE,
             '-VNextBranch', $env:VNEXT_BRANCH,
             '-TargetBranch', $env:TARGET_BRANCH,
+            '-BaseSyncBranch', $env:BASE_SYNC_BRANCH,
             '-Architecture', $env:ARCHITECTURE,
             '-MaxBatchesPerRun', $env:INPUT_MAX_BATCHES,
             '-MaxAgentAttempts', $env:INPUT_MAX_AGENT_ATTEMPTS,
