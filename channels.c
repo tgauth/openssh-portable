@@ -1,4 +1,4 @@
-/* $OpenBSD: channels.c,v 1.470 2026/09/16 06:23:15 djm Exp $ */
+/* $OpenBSD: channels.c,v 1.473 2026/10/27 22:51:00 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -1710,7 +1710,7 @@ channel_decode_socks5(Channel *c, struct sshbuf *input, struct sshbuf *output)
 	uint16_t dest_port;
 	char dest_addr[255+1], ntop[INET6_ADDRSTRLEN];
 	u_int af;
-	int r, success = -1;;
+	int r, success = -1;
 	struct sshbuf *b = NULL;
 
 	debug2("channel %d: decode socks5 %s", c->self,
@@ -1734,8 +1734,11 @@ channel_decode_socks5(Channel *c, struct sshbuf *input, struct sshbuf *output)
 		success = socks_decode_error(c, r, __func__, "version");
 		goto out;
 	}
-	if (socks_ver != 5) /* shouldn't happen */
-		fatal_fr(r, "channel %d: internal error: not socks5", c->self);
+	if (socks_ver != 5) {
+		error_f("channel %d: SOCKS5 request with bad version %d",
+		    c->self, socks_ver);
+		goto out;
+	}
 
 	/* Parse SOCKS5 request header */
 	debug2("channel %d: socks5 post auth", c->self);
@@ -2777,7 +2780,7 @@ channel_handler(struct ssh *ssh, int table, struct timespec *timeout)
 				if (timeout != NULL &&
 				    c->type == SSH_CHANNEL_OPEN &&
 				    channel_get_expiry(ssh, c) != 0) {
-					ptimeout_deadline_monotime(timeout,
+					ptimeout_deadline_monotime_double(timeout,
 					    channel_get_expiry(ssh, c));
 				}
 			} else if (timeout != NULL) {
@@ -2785,7 +2788,7 @@ channel_handler(struct ssh *ssh, int table, struct timespec *timeout)
 				 * Arrange for poll() wakeup when channel pause
 				 * timer expires.
 				 */
-				ptimeout_deadline_monotime(timeout,
+				ptimeout_deadline_monotime_double(timeout,
 				    c->notbefore);
 			}
 		}
@@ -3588,7 +3591,12 @@ channel_input_data(int type, uint32_t seq, struct ssh *ssh)
 		return 0;
 	}
 	if (win_len > c->local_window) {
-		c->local_window_exceeded += win_len - c->local_window;
+		u_int delta = win_len - c->local_window;
+
+		if (c->local_window_exceeded > UINT_MAX - delta)
+			c->local_window_exceeded = UINT_MAX;
+		else
+			c->local_window_exceeded += delta;
 		logit("channel %d: rcvd too much data %zu, win %u/%u "
 		    "(excess %u)", c->self, win_len, c->local_window,
 		    c->local_window_max, c->local_window_exceeded);
@@ -4350,8 +4358,7 @@ check_rfwd_permission(struct ssh *ssh, struct Forward *fwd)
 #ifdef SKIP_PRIVDROP
 	if (fwd->listen_path != NULL)
 		return 0;
-	if (allowed_open->listen_port != FWD_PERMIT_ANY_PORT &&
-	    allowed_open->listen_port < 1024)
+	if (fwd->listen_port != 0 && fwd->listen_port < 1024)
 		return 0;
 #endif
 

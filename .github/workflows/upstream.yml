@@ -1,4 +1,5 @@
 name: Upstream self-hosted
+permissions: read-all
 
 on:
   workflow_dispatch: # disable for win32-openssh fork
