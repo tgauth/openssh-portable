@@ -51,6 +51,10 @@
 .PARAMETER SkipSetup
     Skip Set-OpenSSHTestEnvironment. Use when environment is already configured.
 
+.PARAMETER RepositoryRoot
+    Repository root containing the binaries and test helpers. When omitted,
+    inferred from this script's normal .github\tools location.
+
 .EXAMPLE
     .\Invoke-OpenSSHTests.ps1
     Runs all test suites with Release x64 binaries.
@@ -106,7 +110,10 @@ param(
     [switch]$NoCleanup,
 
     [Parameter()]
-    [switch]$SkipSetup
+    [switch]$SkipSetup,
+
+    [Parameter()]
+    [string]$RepositoryRoot
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -135,7 +142,11 @@ if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEm
 # Resolve paths
 # ──────────────────────────────────────────────────────────────────────────────
 $scriptRoot     = Split-Path -Parent $PSCommandPath
-$repoRoot       = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+$repoRoot       = if ($RepositoryRoot) {
+    (Resolve-Path -LiteralPath $RepositoryRoot).Path
+} else {
+    Split-Path -Parent (Split-Path -Parent $scriptRoot)
+}
 $binPath        = Join-Path $repoRoot "bin\$Architecture\$Configuration"
 $helperModule   = Join-Path $repoRoot "contrib\win32\openssh\OpenSSHTestHelper.psm1"
 $bashIterator   = Join-Path $repoRoot "contrib\win32\openssh\bash_tests_iterator.ps1"

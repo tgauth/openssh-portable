@@ -11,7 +11,8 @@
     High level flow (one scheduled run):
       1. Fetch upstream + origin.
       2. Ensure the long-lived `vnext` branch exists (created off the target
-         release branch on first run; reused thereafter).
+         release branch on first run), then merge the current Windows-fork
+         base into it.
       3. Repeatedly:
            a. Ask Get-CommitGroups for the next mergeable batch of upstream
               commits (CI-success grouping) that is not yet on `vnext`.
@@ -51,6 +52,10 @@ param(
 
     # Branch vnext is created from on first run and that the review PR targets.
     [string]$TargetBranch = 'merge-v10.6P1',
+
+    # Fork branch whose latest Windows build and compatibility changes are
+    # merged into an existing vnext branch before upstream batches are added.
+    [string]$BaseSyncBranch = 'latestw_all',
 
     # origin remote (the fork we push vnext to).
     [string]$OriginRemote = 'origin',
@@ -96,7 +101,10 @@ $ErrorActionPreference = 'Stop'
 $script:Report = [System.Text.StringBuilder]::new()
 $script:NeedsHuman = $false
 $script:BatchesMerged = 0
+$script:BaseSynced = $false
+$script:CanMergeUpstream = $true
 $script:RemediationRequired = $false
+$script:DependenciesReady = $false
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
@@ -144,6 +152,97 @@ function Get-ToolPath {
     $p = Join-Path $ToolkitDir "tools\$Name"
     if (-not (Test-Path $p)) { throw "Required tool script not found in toolkit: $p" }
     return $p
+}
+
+function Initialize-BuildDependencies {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+
+    if ($script:DependenciesReady) {
+        return [pscustomobject]@{ Success = $true; Diagnostic = '' }
+    }
+
+    Write-Log "Installing vcpkg dependencies for $Architecture."
+    $installScript = Get-ToolPath 'Install-VcpkgDependencies.ps1'
+    $installParams = @{
+        Architecture = @($Architecture)
+        RepositoryRoot = $RepositoryRoot
+        Bootstrap = $true
+        Integrate = $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+        $installParams.BinaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+    }
+
+    $installResult = & $installScript @installParams
+    if (-not $installResult.Success) {
+        $details = @($installResult.Errors) -join "`n"
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            $details = [string]$installResult.Message
+        }
+        return [pscustomobject]@{
+            Success = $false
+            Diagnostic = "vcpkg dependency installation failed.`n$details"
+        }
+    }
+
+    $script:DependenciesReady = $true
+    return [pscustomobject]@{ Success = $true; Diagnostic = '' }
+}
+
+function Invoke-ValidatedBuild {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+
+    $dependencyResult = Initialize-BuildDependencies -RepositoryRoot $RepositoryRoot
+    if (-not $dependencyResult.Success) {
+        return $dependencyResult
+    }
+
+    $dependencyTestScript = Get-ToolPath 'Test-VcpkgDependencies.ps1'
+    $preBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $preBuildDependencies.Success) {
+        return [pscustomobject]@{
+            Success = $false
+            Diagnostic = "vcpkg dependencies disappeared or changed after installation and before MSBuild.`n$($preBuildDependencies.Diagnostic)"
+        }
+    }
+
+    $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
+    $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+
+    $analysisScript = Get-ToolPath 'Test-OpenSSHBuild.ps1'
+    $analysisResult = & $analysisScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot -LogFile $buildResult.LogFile
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    foreach ($errorRecord in @($analysisResult.Errors | Select-Object -First 30)) {
+        $diagnostics.Add([string]$errorRecord.RawLine)
+    }
+    if ($diagnostics.Count -eq 0 -and -not $buildResult.Success) {
+        $diagnostics.Add([string]$buildResult.Message)
+    }
+    if (@($analysisResult.Errors).Count -gt 30) {
+        $diagnostics.Add("... $(@($analysisResult.Errors).Count - 30) additional build error(s) omitted.")
+    }
+    if (@($analysisResult.Warnings).Count -gt 0) {
+        $diagnostics.Add("Build warnings: $(@($analysisResult.Warnings).Count)")
+    }
+    $postBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $postBuildDependencies.Success) {
+        $diagnostics.Add("vcpkg dependencies changed or disappeared during MSBuild:`n$($postBuildDependencies.Diagnostic)")
+    } else {
+        $diagnostics.Add("vcpkg dependencies remained present through MSBuild.")
+    }
+    $diagnostics.Add("Build log: $($buildResult.LogFile)")
+
+    return [pscustomobject]@{
+        Success = [bool]$buildResult.Success -and [bool]$analysisResult.Success -and [bool]$postBuildDependencies.Success
+        Diagnostic = ($diagnostics -join "`n")
+        LogFile = $buildResult.LogFile
+        Analysis = $analysisResult
+    }
 }
 
 function Test-CodeImpact {
@@ -219,7 +318,7 @@ function New-RemediationRequest {
 # --------------------------------------------------------------------------
 
 Write-Log "Weekly upstream merge starting."
-Write-Log "Upstream=$UpstreamRemote  Target=$TargetBranch  VNext=$VNextBranch  MaxBatches=$MaxBatchesPerRun  MaxAgentAttempts=$MaxAgentAttempts"
+Write-Log "Upstream=$UpstreamRemote  Target=$TargetBranch  BaseSync=$BaseSyncBranch  VNext=$VNextBranch  MaxBatches=$MaxBatchesPerRun  MaxAgentAttempts=$MaxAgentAttempts"
 
 # Identity for merge/commit operations in CI.
 if (-not (& git config user.email)) {
@@ -255,20 +354,80 @@ if ($LASTEXITCODE -eq 0) {
     Assert-Git checkout -B $VNextBranch $base | Out-Null
 }
 
+Add-Report "## Weekly upstream merge run"
+Add-Report ""
+Add-Report "- Upstream endpoint: ``$UpstreamRef`` (``$($endSha.Substring(0,12))``)"
+Add-Report "- Target branch: ``$TargetBranch``"
+Add-Report "- Base sync branch: ``$BaseSyncBranch``"
+Add-Report "- Integration branch: ``$VNextBranch``"
+Add-Report ""
+
+# Keep the long-lived integration branch current with Windows-fork changes
+# that landed after vnext was first created. This is intentionally separate
+# from TargetBranch during fork testing, where the review PR still targets the
+# in-progress release branch.
+$baseSyncRemote = "$OriginRemote/$BaseSyncBranch"
+& git rev-parse --verify --quiet $baseSyncRemote | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    $script:NeedsHuman = $true
+    $script:CanMergeUpstream = $false
+    Add-Report "> Base sync branch ``$baseSyncRemote`` was not found. **Human help needed.**"
+} else {
+    & git merge-base --is-ancestor $baseSyncRemote HEAD
+    if ($LASTEXITCODE -eq 0) {
+        Write-Log "$VNextBranch already contains $baseSyncRemote."
+        Add-Report "- Base sync: already current with ``$baseSyncRemote``."
+    } else {
+        $headBeforeBaseSync = Resolve-Sha HEAD
+        Write-Log "Merging $baseSyncRemote into $VNextBranch before upstream batches."
+        $baseSync = Invoke-Git merge '--no-ff' '--no-edit' $baseSyncRemote
+        if ($baseSync.ExitCode -ne 0) {
+            if (Test-ConflictsRemain) {
+                Invoke-Git merge --abort | Out-Null
+                Add-Report "> Merging ``$baseSyncRemote`` into ``$VNextBranch`` produced conflicts. **Human help needed.**"
+            } else {
+                Add-Report "> Merging ``$baseSyncRemote`` into ``$VNextBranch`` failed: $($baseSync.Output)"
+            }
+            $script:NeedsHuman = $true
+            $script:CanMergeUpstream = $false
+        } else {
+            $script:BaseSynced = $true
+            Add-Report "- Base sync: merged ``$baseSyncRemote``."
+
+            if (Test-CodeImpact "$headBeforeBaseSync..HEAD") {
+                Write-Log "Base sync touched C/H sources; building for validation."
+                $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+                $buildResult = Invoke-ValidatedBuild -RepositoryRoot $repositoryRoot
+                if (-not $buildResult.Success) {
+                    $script:NeedsHuman = $true
+                    $script:CanMergeUpstream = $false
+                    Add-Report "- Base sync Release/$Architecture build failed. **Human help needed.**"
+                    Add-Report ""
+                    Add-Report '```text'
+                    Add-Report $buildResult.Diagnostic
+                    Add-Report '```'
+                } else {
+                    & git checkout -- 'contrib/win32/openssh/paths.targets' 2>$null
+                    Add-Report "- Base sync Release/$Architecture build succeeded."
+                }
+            } else {
+                Add-Report "- Base sync changed no compiled sources; build validation skipped."
+            }
+        }
+    }
+}
+Add-Report ""
+
 # --------------------------------------------------------------------------
 # Batch merge loop
 # --------------------------------------------------------------------------
 
 $getGroups = Get-ToolPath 'Get-CommitGroups.ps1'
 
-Add-Report "## Weekly upstream merge run"
-Add-Report ""
-Add-Report "- Upstream endpoint: ``$UpstreamRef`` (``$($endSha.Substring(0,12))``)"
-Add-Report "- Target branch: ``$TargetBranch``"
-Add-Report "- Integration branch: ``$VNextBranch``"
-Add-Report ""
-
 for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
+    if (-not $script:CanMergeUpstream) {
+        break
+    }
 
     # Last upstream commit already on vnext = merge-base(vnext, upstreamRef).
     $startSha = (Assert-Git merge-base $VNextBranch $endSha).Trim()
@@ -339,16 +498,15 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
     # ---- Build validation (only if compiled sources changed) --------------
     if (Test-CodeImpact $rangeForImpact) {
         Write-Log "Batch #$i touched C/H sources; building for validation."
-        $buildScript = Get-ToolPath 'Start-OpenSSHBuild.ps1'
-        $buildOutput = @(& pwsh -NoProfile -File $buildScript -Configuration Release -Architecture $Architecture 2>&1)
-        $buildOutput | ForEach-Object { Write-Host "    [build] $_" }
-        $built = $LASTEXITCODE -eq 0
+        $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+        $buildResult = Invoke-ValidatedBuild -RepositoryRoot $repositoryRoot
+        $built = [bool]$buildResult.Success
 
         if (-not $built) {
             Write-Log "Build failed; preparing agentic remediation." 'WARN'
             $script:BatchesMerged++
             New-RemediationRequest -Mode build -Batch $i -ExpectedHead (Resolve-Sha HEAD) `
-                -BatchStart $startSha -BatchEnd $batchEnd -BuildLog ($buildOutput -join "`n")
+                -BatchStart $startSha -BatchEnd $batchEnd -BuildLog $buildResult.Diagnostic
             if ($SkipAgent) {
                 Add-Report "- Build failed and agent execution was skipped. **Human help needed.**"
             } else {
@@ -379,12 +537,13 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
 # --------------------------------------------------------------------------
 
 $ciStatus = 'skipped'
-if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:RemediationRequired -and -not $SkipFinalCI) {
-    Write-Log "Running full CI suite after merging $($script:BatchesMerged) batch(es)."
+if (($script:BatchesMerged -gt 0 -or $script:BaseSynced) -and -not $script:NeedsHuman -and -not $script:RemediationRequired -and -not $SkipFinalCI) {
+    Write-Log "Running full CI suite after integrating base updates and $($script:BatchesMerged) upstream batch(es)."
     $testScript = Get-ToolPath 'Invoke-OpenSSHTests.ps1'
-    & pwsh -NoProfile -File $testScript -Configuration Release -Architecture $Architecture 2>&1 |
-        ForEach-Object { Write-Host "    [ci] $_" }
-    if ($LASTEXITCODE -eq 0) {
+    $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+    $ciResult = & $testScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $repositoryRoot
+    if ($ciResult.Success) {
         $ciStatus = 'passed'
         Add-Report "## Full CI: passed"
     } elseif ($script:RemediationRequired) {
@@ -396,8 +555,8 @@ if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:R
     }
 } elseif ($SkipFinalCI) {
     Add-Report "## Full CI: skipped (-SkipFinalCI)"
-} elseif ($script:BatchesMerged -eq 0) {
-    Add-Report "## Full CI: skipped (no batches merged)"
+} elseif ($script:BatchesMerged -eq 0 -and -not $script:BaseSynced) {
+    Add-Report "## Full CI: skipped (no changes integrated)"
 } else {
     Add-Report "## Full CI: skipped (earlier step needs human attention)"
 }
@@ -406,7 +565,7 @@ if ($script:BatchesMerged -gt 0 -and -not $script:NeedsHuman -and -not $script:R
 # Push + report
 # --------------------------------------------------------------------------
 
-if ($script:BatchesMerged -gt 0 -or $script:RemediationRequired) {
+if ($script:BatchesMerged -gt 0 -or ($script:BaseSynced -and -not $script:NeedsHuman) -or $script:RemediationRequired) {
     Write-Log "Pushing $VNextBranch to $OriginRemote."
     $push = Invoke-Git push $OriginRemote "${VNextBranch}:${VNextBranch}"
     if ($push.ExitCode -ne 0) {

@@ -39,6 +39,10 @@
     Each chunk ends with a commit that has any CI runs, regardless of pass/fail status.
     Default behavior (without this flag) groups by CI success only.
 
+.PARAMETER JsonOutput
+    Emits the returned chunk array as compact JSON. Use this for cross-process callers because
+    PowerShell formats objects as text when they cross a native process boundary.
+
 .OUTPUTS
     Returns an array of chunk objects, each containing:
     - ChunkNumber: Sequential number of the chunk
@@ -104,7 +108,10 @@ param(
     [switch]$FirstChunkOnly,
 
     [Parameter(Mandatory=$false)]
-    [switch]$GroupByCIPresence
+    [switch]$GroupByCIPresence,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$JsonOutput
 )
 
 # Validate parameters
@@ -359,20 +366,26 @@ $commitCount = 0
 $chunkStart = 0
 
 # Proactive rate-limit budget check. CI status + commit details cost ~3 core API calls per
-# commit. Failing now with a clear message is far better than exhausting the limit mid-scan
-# and emitting an incomplete batch that looks valid. The /rate_limit endpoint itself is free.
+# commit. A full grouping run must be able to inspect the whole range before it can return a
+# complete result. FirstChunkOnly is intentionally incremental, so it may start with a smaller
+# budget and stop as soon as the first successful CI endpoint is found; per-request handling
+# below still fails safely if the available budget is exhausted before that endpoint.
 try {
     $rl = Invoke-RestMethod -Uri "https://api.github.com/rate_limit" -Headers (Get-GitHubHeaders) -ErrorAction Stop
     $coreRemaining = [int]$rl.resources.core.remaining
     $coreResetAt = [DateTimeOffset]::FromUnixTimeSeconds([long]$rl.resources.core.reset).LocalDateTime
     $estimatedNeeded = [Math]::Max(1, $allCommits.Count) * 3
     Write-Host "GitHub API budget: $coreRemaining core requests remaining (need ~$estimatedNeeded for $($allCommits.Count) commits; resets $coreResetAt)" -ForegroundColor Gray
-    if ($coreRemaining -lt $estimatedNeeded) {
+    if (-not $FirstChunkOnly -and $coreRemaining -lt $estimatedNeeded) {
         Write-Error ("GITHUB_RATE_LIMIT_EXCEEDED: Insufficient GitHub API budget to evaluate CI for all $($allCommits.Count) commits. " +
             "Have $coreRemaining core requests, need ~$estimatedNeeded. Rate limit resets at $coreResetAt. " +
             "Set GITHUB_TOKEN for a higher limit (5,000/hr) or wait for the reset. " +
             "Aborting so an incomplete CI scan cannot be mistaken for a valid batch.")
         exit 1
+    }
+    if ($FirstChunkOnly -and $coreRemaining -lt $estimatedNeeded) {
+        Write-Host ("FirstChunkOnly is enabled; scanning incrementally with the available $coreRemaining requests " +
+            "instead of requiring budget for the full range.") -ForegroundColor Yellow
     }
 } catch {
     if ("$($_)" -match 'GITHUB_RATE_LIMIT_EXCEEDED') {
@@ -464,46 +477,50 @@ if (-not $FirstChunkOnly -and $chunkStart -lt $commitsWithStatus.Count) {
     }
 }
 
-Write-Host "`nGrouping complete." -ForegroundColor Cyan
+if ($JsonOutput) {
+    ConvertTo-Json -InputObject @($chunks) -Depth 5 -Compress
+} else {
+    Write-Host "`nGrouping complete." -ForegroundColor Cyan
 
-# Display results
-$groupingMode = if ($GroupByCIPresence) { "CI Presence" } else { "CI Success" }
-Write-Host "\n========================================" -ForegroundColor Cyan
-Write-Host "COMMIT CHUNKS (Grouped by $groupingMode)" -ForegroundColor Cyan
-Write-Host "========================================`n" -ForegroundColor Cyan
+    # Display results
+    $groupingMode = if ($GroupByCIPresence) { "CI Presence" } else { "CI Success" }
+    Write-Host "\n========================================" -ForegroundColor Cyan
+    Write-Host "COMMIT CHUNKS (Grouped by $groupingMode)" -ForegroundColor Cyan
+    Write-Host "========================================`n" -ForegroundColor Cyan
 
-foreach ($chunk in $chunks) {
-    Write-Host "Chunk $($chunk.ChunkNumber): $($chunk.CommitCount) commits" -ForegroundColor Yellow
-    Write-Host "  Start: $($chunk.StartCommit) - $($chunk.StartMessage)" -ForegroundColor White
-    Write-Host "  End:   $($chunk.EndCommit) - $($chunk.EndMessage)" -ForegroundColor Green
-    Write-Host "  Commit Pair: ($($chunk.StartCommitFull), $($chunk.EndCommitFull))" -ForegroundColor Magenta
-    Write-Host ""
-}
-
-Write-Host "`nTotal Chunks: $($chunks.Count)" -ForegroundColor Cyan
-Write-Host "Total Commits: $($commitsWithStatus.Count)" -ForegroundColor Cyan
-
-# Output detailed commit list
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "DETAILED COMMIT LIST" -ForegroundColor Cyan
-Write-Host "========================================`n" -ForegroundColor Cyan
-
-# Only show commits that are part of returned chunks
-$maxIndex = if ($chunks.Count -gt 0) { $chunks[-1].EndIndex } else { -1 }
-foreach ($commit in $commitsWithStatus) {
-    if ($commit.Index -le $maxIndex) {
-        $statusColor = switch ($commit.CIStatus) {
-            "success" { "Green" }
-            "has_ci" { "Green" }
-            "failure" { "Red" }
-            "no_ci" { "Yellow" }
-            "pending" { "Yellow" }
-            default { "Gray" }
-        }
-
-        Write-Host "$($commit.Sha) | $($commit.CIStatus.PadRight(10)) | $($commit.Message.Substring(0, [Math]::Min(60, $commit.Message.Length)))" -ForegroundColor $statusColor
+    foreach ($chunk in $chunks) {
+        Write-Host "Chunk $($chunk.ChunkNumber): $($chunk.CommitCount) commits" -ForegroundColor Yellow
+        Write-Host "  Start: $($chunk.StartCommit) - $($chunk.StartMessage)" -ForegroundColor White
+        Write-Host "  End:   $($chunk.EndCommit) - $($chunk.EndMessage)" -ForegroundColor Green
+        Write-Host "  Commit Pair: ($($chunk.StartCommitFull), $($chunk.EndCommitFull))" -ForegroundColor Magenta
+        Write-Host ""
     }
-}
 
-# Return the chunks for potential further processing
-return $chunks
+    Write-Host "`nTotal Chunks: $($chunks.Count)" -ForegroundColor Cyan
+    Write-Host "Total Commits: $($commitsWithStatus.Count)" -ForegroundColor Cyan
+
+    # Output detailed commit list
+    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "DETAILED COMMIT LIST" -ForegroundColor Cyan
+    Write-Host "========================================`n" -ForegroundColor Cyan
+
+    # Only show commits that are part of returned chunks
+    $maxIndex = if ($chunks.Count -gt 0) { $chunks[-1].EndIndex } else { -1 }
+    foreach ($commit in $commitsWithStatus) {
+        if ($commit.Index -le $maxIndex) {
+            $statusColor = switch ($commit.CIStatus) {
+                "success" { "Green" }
+                "has_ci" { "Green" }
+                "failure" { "Red" }
+                "no_ci" { "Yellow" }
+                "pending" { "Yellow" }
+                default { "Gray" }
+            }
+
+            Write-Host "$($commit.Sha) | $($commit.CIStatus.PadRight(10)) | $($commit.Message.Substring(0, [Math]::Min(60, $commit.Message.Length)))" -ForegroundColor $statusColor
+        }
+    }
+
+    # Return the chunks for potential further processing
+    return $chunks
+}

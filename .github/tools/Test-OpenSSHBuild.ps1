@@ -24,6 +24,11 @@
 .PARAMETER AllowArchMismatch
     Permit targeting an architecture that differs from the host machine's architecture.
 
+.PARAMETER RepositoryRoot
+    Repository root containing the build artifacts and log. Defaults to the
+    repository containing this script. Supply this when the tool is staged
+    outside the checkout.
+
 .PARAMETER LogFile
     Optional path to the build log file. If not specified, uses default pattern:
     contrib\win32\openssh\OpenSSH{Configuration}{Architecture}.log (where OpenSSHBuildHelper writes it).
@@ -71,6 +76,9 @@ param(
     [switch]$AllowArchMismatch,
 
     [Parameter(Mandatory=$false)]
+    [string]$RepositoryRoot,
+
+    [Parameter(Mandatory=$false)]
     [string]$LogFile
 )
 
@@ -94,9 +102,15 @@ if (-not $PSBoundParameters.ContainsKey('Architecture') -or [string]::IsNullOrEm
     throw "Requested architecture '$Architecture' does not match the host architecture '$hostArch'. Re-run with -AllowArchMismatch to target a different architecture on purpose."
 }
 
-# Determine repository root (go up from .github\tools to repo root)
 $scriptRoot = $PSScriptRoot
-$repoRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+} else {
+    if (-not (Test-Path -LiteralPath $RepositoryRoot -PathType Container)) {
+        throw "RepositoryRoot does not exist: $RepositoryRoot"
+    }
+    $repoRoot = (Resolve-Path -LiteralPath $RepositoryRoot).Path
+}
 
 # Define expected artifacts (14 executables)
 $expectedArtifacts = @(
@@ -128,40 +142,26 @@ try {
     $folderName = if ($Architecture -eq 'x86') { 'Win32' } else { $Architecture }
     $buildPath = Join-Path $repoRoot "bin\$folderName\$Configuration"
 
-    if (-not (Test-Path $buildPath)) {
-        Write-Host "Build path does not exist: $buildPath" -ForegroundColor Red
-
-        $result = @{
-            Success = $false
-            ArtifactsFound = @()
-            ArtifactsMissing = $expectedArtifacts
-            TotalArtifacts = 0
-            ExpectedArtifacts = $expectedArtifacts.Count
-            Errors = @()
-            Warnings = @()
-            LogFile = $LogFile
-            Message = "Build path does not exist: $buildPath"
-        }
-
-        return $result
-    }
-
-    Write-Host "Build path: $buildPath" -ForegroundColor Gray
-
-    # Check for artifacts
-    Write-Host "`nChecking for expected artifacts..." -ForegroundColor Cyan
-
     $artifactsFound = @()
     $artifactsMissing = @()
+    if (-not (Test-Path $buildPath)) {
+        Write-Host "Build path does not exist: $buildPath" -ForegroundColor Red
+        $artifactsMissing = @($expectedArtifacts)
+    } else {
+        Write-Host "Build path: $buildPath" -ForegroundColor Gray
 
-    foreach ($artifact in $expectedArtifacts) {
-        $artifactPath = Join-Path $buildPath $artifact
-        if (Test-Path $artifactPath) {
-            $artifactsFound += $artifact
-            Write-Host "  ✓ $artifact" -ForegroundColor Green
-        } else {
-            $artifactsMissing += $artifact
-            Write-Host "  ✗ $artifact (MISSING)" -ForegroundColor Red
+        # Check for artifacts
+        Write-Host "`nChecking for expected artifacts..." -ForegroundColor Cyan
+
+        foreach ($artifact in $expectedArtifacts) {
+            $artifactPath = Join-Path $buildPath $artifact
+            if (Test-Path $artifactPath) {
+                $artifactsFound += $artifact
+                Write-Host "  ✓ $artifact" -ForegroundColor Green
+            } else {
+                $artifactsMissing += $artifact
+                Write-Host "  ✗ $artifact (MISSING)" -ForegroundColor Red
+            }
         }
     }
 

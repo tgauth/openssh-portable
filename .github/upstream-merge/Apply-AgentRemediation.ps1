@@ -4,17 +4,17 @@ param(
     [Parameter(Mandatory)][string]$ToolkitDir,
     [Parameter(Mandatory)][string]$RequestPath,
     [Parameter(Mandatory)][string]$BundleDir,
-    [Parameter(Mandatory)][string]$ReportPath,
+    [Parameter(Mandatory)]    [string]$ReportPath,
     [string]$OriginRemote = 'origin',
     [string]$VNextBranch = 'vnext',
-    [string]$TargetBranch = 'merge-v10.6P1',
-    [switch]$SkipFinalCI
+    [string]$TargetBranch = 'merge-v10.6P1'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $needsHuman = $false
-$ciStatus = 'skipped'
+$ciStatus = 'deferred'
+$dependenciesReady = $false
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
@@ -57,6 +57,71 @@ function Mark-NeedsHuman {
     Add-Report "## Agentic remediation: NEEDS HUMAN"
     Add-Report ""
     Add-Report $Reason
+}
+
+function Initialize-BuildDependencies {
+    param(
+        [Parameter(Mandatory)][string]$RepositoryRoot,
+        [Parameter(Mandatory)][string]$Architecture
+    )
+
+    if ($script:dependenciesReady) {
+        return
+    }
+
+    $installScript = Join-Path $ToolkitDir 'tools\Install-VcpkgDependencies.ps1'
+    $installParams = @{
+        Architecture = @($Architecture)
+        RepositoryRoot = $RepositoryRoot
+        Bootstrap = $true
+        Integrate = $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+        $installParams.BinaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+    }
+    $installResult = & $installScript @installParams
+    if (-not $installResult.Success) {
+        $details = @($installResult.Errors) -join "`n"
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            $details = [string]$installResult.Message
+        }
+        throw "vcpkg dependency installation failed.`n$details"
+    }
+    $script:dependenciesReady = $true
+}
+
+function Invoke-ValidatedBuild {
+    param(
+        [Parameter(Mandatory)][string]$RepositoryRoot,
+        [Parameter(Mandatory)][string]$Architecture
+    )
+
+    Initialize-BuildDependencies -RepositoryRoot $RepositoryRoot -Architecture $Architecture
+
+    $dependencyTestScript = Join-Path $ToolkitDir 'tools\Test-VcpkgDependencies.ps1'
+    $preBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $preBuildDependencies.Success) {
+        throw "vcpkg dependencies disappeared or changed after installation and before MSBuild.`n$($preBuildDependencies.Diagnostic)"
+    }
+
+    $buildScript = Join-Path $ToolkitDir 'tools\Start-OpenSSHBuild.ps1'
+    $buildResult = & $buildScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    $analysisScript = Join-Path $ToolkitDir 'tools\Test-OpenSSHBuild.ps1'
+    $analysisResult = & $analysisScript -Configuration Release -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot -LogFile $buildResult.LogFile
+
+    $postBuildDependencies = & $dependencyTestScript -Architecture $Architecture `
+        -RepositoryRoot $RepositoryRoot
+    if (-not $buildResult.Success -or -not $analysisResult.Success -or -not $postBuildDependencies.Success) {
+        $errors = @($analysisResult.Errors | Select-Object -First 30 | ForEach-Object { $_.RawLine })
+        $details = if ($errors.Count -gt 0) { $errors -join "`n" } else { [string]$buildResult.Message }
+        if (-not $postBuildDependencies.Success) {
+            $details += "`nvcpkg dependencies changed or disappeared during MSBuild:`n$($postBuildDependencies.Diagnostic)"
+        }
+        throw "Release/$Architecture build failed after applying remediation.`n$details`nBuild log: $($buildResult.LogFile)"
+    }
 }
 
 if (-not (Test-Path $ReportPath)) {
@@ -159,12 +224,8 @@ try {
         throw "Unsupported remediation mode '$($request.mode)'."
     }
 
-    $buildScript = Join-Path $ToolkitDir 'tools\Start-OpenSSHBuild.ps1'
-    & pwsh -NoProfile -File $buildScript -Configuration Release -Architecture $request.architecture 2>&1 |
-        ForEach-Object { Write-Host "    [build] $_" }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Release/$($request.architecture) build failed after applying remediation."
-    }
+    $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
+    Invoke-ValidatedBuild -RepositoryRoot $repositoryRoot -Architecture $request.architecture
 
     Assert-Git push $OriginRemote "${VNextBranch}:${VNextBranch}"
     Add-Report ""
@@ -179,18 +240,10 @@ try {
         Add-Report (Get-Content -Raw $decisionLog)
     }
 
-    if (-not $SkipFinalCI) {
-        $testScript = Join-Path $ToolkitDir 'tools\Invoke-OpenSSHTests.ps1'
-        & pwsh -NoProfile -File $testScript -Configuration Release -Architecture $request.architecture 2>&1 |
-            ForEach-Object { Write-Host "    [ci] $_" }
-        if ($LASTEXITCODE -eq 0) {
-            $ciStatus = 'passed'
-            Add-Report "## Full CI: passed"
-        } else {
-            $ciStatus = 'failed'
-            Mark-NeedsHuman "Full CI failed after the remediation was applied."
-        }
-    }
+    Add-Report ""
+    Add-Report "## Full CI: deferred"
+    Add-Report ""
+    Add-Report "The remediation received the authoritative Release build only. Full CI will run once after a later dispatch completes its deterministic batch loop without remediation."
 } catch {
     Mark-NeedsHuman $_.Exception.Message
     if (Test-Path .git\MERGE_HEAD) {

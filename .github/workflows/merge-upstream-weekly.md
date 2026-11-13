@@ -77,8 +77,10 @@ jobs:
       UPSTREAM_URL: https://github.com/openssh/openssh-portable.git
       VNEXT_BRANCH: vnext
       TARGET_BRANCH: merge-v10.6P1
+      BASE_SYNC_BRANCH: latestw_all
       ARCHITECTURE: x64
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+      GITHUB_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
       INPUT_UPSTREAM_REF: ${{ inputs.upstream_ref }}
       INPUT_MAX_BATCHES: ${{ inputs.max_batches || '4' }}
       INPUT_MAX_AGENT_ATTEMPTS: ${{ inputs.max_agent_attempts || '3' }}
@@ -122,6 +124,7 @@ jobs:
             '-UpstreamRemote', $env:UPSTREAM_REMOTE,
             '-VNextBranch', $env:VNEXT_BRANCH,
             '-TargetBranch', $env:TARGET_BRANCH,
+            '-BaseSyncBranch', $env:BASE_SYNC_BRANCH,
             '-Architecture', $env:ARCHITECTURE,
             '-MaxBatchesPerRun', $env:INPUT_MAX_BATCHES,
             '-MaxAgentAttempts', $env:INPUT_MAX_AGENT_ATTEMPTS,
@@ -143,6 +146,15 @@ jobs:
             ${{ runner.temp }}/merge-report.md
             ${{ runner.temp }}/remediation-request.json
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload preparation build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-merge-preparation-build-log
+          path: ${{ github.workspace }}/contrib/win32/openssh/OpenSSHRelease*.log
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Reject unexpected preparation failure
@@ -211,7 +223,6 @@ jobs:
       VNEXT_BRANCH: vnext
       TARGET_BRANCH: merge-v10.6P1
       GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
-      INPUT_SKIP_FINAL_CI: ${{ inputs.skip_final_ci || false }}
     steps:
       - name: Checkout workflow branch
         uses: actions/checkout@v7
@@ -255,7 +266,6 @@ jobs:
             '-VNextBranch', $env:VNEXT_BRANCH,
             '-TargetBranch', $env:TARGET_BRANCH
           )
-          if ($env:INPUT_SKIP_FINAL_CI -eq 'true') { $args += '-SkipFinalCI' }
           & pwsh -NoProfile -File (Join-Path $env:TOOLKIT_DIR 'Apply-AgentRemediation.ps1') @args
           exit $LASTEXITCODE
 
@@ -266,6 +276,15 @@ jobs:
           name: weekly-upstream-merge-report
           path: ${{ runner.temp }}/merge-input/merge-report.md
           if-no-files-found: warn
+
+      - name: Upload remediation build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-merge-remediation-build-log
+          path: ${{ github.workspace }}/contrib/win32/openssh/OpenSSHRelease*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Open or update review pull request
         if: always()
@@ -280,6 +299,11 @@ jobs:
           git rev-parse --verify --quiet "origin/$env:VNEXT_BRANCH"
           if ($LASTEXITCODE -ne 0) {
             Write-Host '::warning::vnext was not pushed; the report artifact is the handoff.'
+            exit 0
+          }
+          $ahead = git rev-list --count "origin/$env:TARGET_BRANCH..origin/$env:VNEXT_BRANCH"
+          if ($LASTEXITCODE -ne 0 -or [int]$ahead -eq 0) {
+            Write-Host '::warning::vnext has no commits beyond the target branch; no pull request can be opened.'
             exit 0
           }
           $body = (Test-Path $env:REPORT_PATH) ? (Get-Content -Raw $env:REPORT_PATH) : 'No report produced.'
@@ -300,7 +324,7 @@ jobs:
           NEEDS_HUMAN: ${{ steps.apply.outputs.needs_human || 'true' }}
         run: |
           if ($env:NEEDS_HUMAN -eq 'true') {
-            Write-Host '::warning::Agentic remediation did not validate; see the report artifact.'
+            Write-Host '::warning::Remediation could not be completed; see the report artifact for the schema, apply, build, or CI failure.'
             exit 1
           }
 
@@ -364,6 +388,8 @@ steps:
       git fetch upstream --prune --tags
       git fetch origin "+refs/heads/vnext:refs/remotes/origin/vnext"
       git checkout --detach "$expected_head"
+      git config --local user.email 'openssh-merge-bot@users.noreply.github.com'
+      git config --local user.name 'OpenSSH Upstream Merge Bot'
       if [ "$mode" = conflicts ]; then
         git merge --no-ff --no-commit "$batch_end" || test -n "$(git diff --name-only --diff-filter=U)"
       fi

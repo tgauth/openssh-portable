@@ -60,6 +60,7 @@ switch ($Scenario) {
 
     foreach ($scenario in @('valid', 'empty', 'malformed', 'exit-error', 'throw-error', 'multiple', 'caught-up')) {
         $script:NeedsHuman = $false
+        $script:CanMergeUpstream = $true
         $script:BatchesMerged = 0
         $script:MergeCalls = 0
         $script:Reports = [System.Collections.Generic.List[string]]::new()

@@ -10,15 +10,19 @@
     The script:
     - Locates a vcpkg clone (parameter, $env:VCPKG_ROOT, or ..\vcpkg).
     - Optionally bootstraps it (-Bootstrap).
+    - Optionally enables user-wide MSBuild integration (-Integrate) so projects
+      that rely on vcpkg.user.targets receive manifest include/library paths.
     - Verifies the LibreSSL vcpkg.json override matches the FileVersion field
       in vcpkg_overlay_ports/libressl/add-version-file.patch (cross-check).
     - Runs `vcpkg install` from contrib/win32/openssh against the manifest,
       using --overlay-triplets=.\vcpkg_triplets and
       --overlay-ports=.\vcpkg_overlay_ports.
-    - Verifies that vcpkg_installed/<triplet>/bin/libcrypto.dll was produced.
+    - Verifies that the nested triplet layout contains the LibreSSL header,
+      import library, and runtime DLL consumed by the Visual Studio build.
 
-    Output is consumed by OpenSSHBuildHelper.psm1 which reads from
-    contrib\win32\openssh\vcpkg_installed\<triplet>-custom\<triplet>-custom\bin\.
+    Output is consumed by the Visual Studio projects and
+    OpenSSHBuildHelper.psm1 from
+    contrib\win32\openssh\vcpkg_installed\<triplet>\<triplet>\.
 
 .PARAMETER Architecture
     One or more architectures to install. Each value maps to the
@@ -26,15 +30,27 @@
     default of Start-OpenSSHBuild.ps1. Pass multiple values to install for
     several triplets in one run, matching what CI builds.
 
+.PARAMETER RepositoryRoot
+    Repository root whose manifest and vcpkg_installed directory should be
+    used. Defaults to the repository containing this script. Supply this when
+    the tool is staged outside the checkout, such as a GitHub Actions runner
+    temporary directory.
+
 .PARAMETER VcpkgRoot
     Path to a vcpkg clone. If omitted, the script tries (in order):
         1. $env:VCPKG_ROOT
-        2. ..\vcpkg relative to the repo root
+        2. $env:VCPKG_INSTALLATION_ROOT (GitHub-hosted runners)
+        3. ..\vcpkg relative to the repo root
     If neither exists, the script errors with a clone command.
 
 .PARAMETER Bootstrap
     If specified, runs bootstrap-vcpkg.bat when vcpkg.exe is missing.
     Without this switch, a missing vcpkg.exe is treated as an error.
+
+.PARAMETER Integrate
+    If specified, runs `vcpkg integrate install` before dependency installation.
+    The repository's Azure DevOps build does this, and fresh hosted runners need
+    it so every Visual Studio project imports the manifest dependency paths.
 
 .PARAMETER Clean
     If specified, deletes contrib/win32/openssh/vcpkg_installed before
@@ -62,10 +78,10 @@
     - Message: Summary message
 
 .EXAMPLE
-    .\Install-VcpkgDependencies.ps1 -Bootstrap
+    .\Install-VcpkgDependencies.ps1 -Bootstrap -Integrate
 
-    First-time setup. Bootstraps vcpkg if needed and installs the x64-custom
-    triplet.
+    First-time CI-style setup. Bootstraps vcpkg if needed, enables MSBuild
+    integration, and installs the x64-custom triplet.
 
 .EXAMPLE
     .\Install-VcpkgDependencies.ps1 -Architecture x64,x86,ARM,ARM64
@@ -80,7 +96,8 @@
 .NOTES
     - Mirrors .azdo/templates/install-vcpkg-dependencies.yml.
     - Must complete before Start-OpenSSHBuild.ps1.
-    - Does not run `vcpkg integrate install`; that is optional and global.
+    - `vcpkg integrate install` is optional because it modifies user-wide
+      MSBuild configuration; trusted CI drivers enable it explicitly.
 #>
 
 param(
@@ -89,10 +106,16 @@ param(
     [string[]]$Architecture = @('x64'),
 
     [Parameter(Mandatory=$false)]
+    [string]$RepositoryRoot,
+
+    [Parameter(Mandatory=$false)]
     [string]$VcpkgRoot,
 
     [Parameter(Mandatory=$false)]
     [switch]$Bootstrap,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Integrate,
 
     [Parameter(Mandatory=$false)]
     [switch]$Clean,
@@ -110,13 +133,21 @@ $scriptRoot = $PSScriptRoot
 if ([string]::IsNullOrEmpty($scriptRoot)) {
     $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
-$repoRoot = (Get-Item $scriptRoot).Parent.Parent.FullName
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $repoRoot = (Get-Item $scriptRoot).Parent.Parent.FullName
+} else {
+    if (-not (Test-Path -LiteralPath $RepositoryRoot -PathType Container)) {
+        throw "RepositoryRoot does not exist: $RepositoryRoot"
+    }
+    $repoRoot = (Resolve-Path -LiteralPath $RepositoryRoot).Path
+}
 $opensshDir = Join-Path $repoRoot 'contrib\win32\openssh'
 $installedDir = Join-Path $opensshDir 'vcpkg_installed'
 $overlayPortsDir = Join-Path $opensshDir 'vcpkg_overlay_ports'
 $overlayTripletsDir = Join-Path $opensshDir 'vcpkg_triplets'
 $manifestPath = Join-Path $opensshDir 'vcpkg.json'
 $libresslPatchPath = Join-Path $overlayPortsDir 'libressl\add-version-file.patch'
+$dependencyTestPath = Join-Path $scriptRoot 'Test-VcpkgDependencies.ps1'
 
 $result = @{
     Success = $false
@@ -138,6 +169,9 @@ function Resolve-VcpkgRoot {
     }
     if (-not [string]::IsNullOrWhiteSpace($env:VCPKG_ROOT)) {
         $candidates += $env:VCPKG_ROOT
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:VCPKG_INSTALLATION_ROOT)) {
+        $candidates += $env:VCPKG_INSTALLATION_ROOT
     }
     $candidates += (Join-Path (Split-Path -Parent $RepoRoot) 'vcpkg')
 
@@ -193,10 +227,10 @@ try {
     Write-Host "========================================`n" -ForegroundColor Cyan
 
     # Step 1: Resolve vcpkg root
-    Write-Host "[1/5] Locating vcpkg..." -ForegroundColor Cyan
+    Write-Host "[1/6] Locating vcpkg..." -ForegroundColor Cyan
     $resolvedRoot = Resolve-VcpkgRoot -Explicit $VcpkgRoot -RepoRoot $repoRoot
     if (-not $resolvedRoot) {
-        $msg = "vcpkg clone not found. Tried: -VcpkgRoot, `$env:VCPKG_ROOT, $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg').`n" +
+        $msg = "vcpkg clone not found. Tried: -VcpkgRoot, `$env:VCPKG_ROOT, `$env:VCPKG_INSTALLATION_ROOT, $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg').`n" +
                "Clone it with: git clone https://github.com/Microsoft/vcpkg.git $(Join-Path (Split-Path -Parent $repoRoot) 'vcpkg')"
         $result.Errors += $msg
         Write-Host "  ✗ $msg" -ForegroundColor Red
@@ -210,7 +244,7 @@ try {
     $bootstrapScript = Join-Path $resolvedRoot 'bootstrap-vcpkg.bat'
 
     # Step 2: Bootstrap if needed
-    Write-Host "`n[2/5] Checking vcpkg.exe..." -ForegroundColor Cyan
+    Write-Host "`n[2/6] Checking vcpkg.exe..." -ForegroundColor Cyan
     if (-not (Test-Path -LiteralPath $vcpkgExe)) {
         if ($Bootstrap) {
             if (-not (Test-Path -LiteralPath $bootstrapScript)) {
@@ -223,7 +257,7 @@ try {
             Write-Host "  → Bootstrapping vcpkg..." -ForegroundColor Yellow
             Push-Location $resolvedRoot
             try {
-                & $bootstrapScript
+                & $bootstrapScript | Out-Host
                 $bootstrapExit = $LASTEXITCODE
             } finally {
                 Pop-Location
@@ -248,8 +282,25 @@ try {
     }
     $result.VcpkgExecutable = $vcpkgExe
 
-    # Step 3: LibreSSL version cross-check
-    Write-Host "`n[3/5] Verifying LibreSSL version cross-check..." -ForegroundColor Cyan
+    # Step 3: Optional MSBuild integration
+    Write-Host "`n[3/6] Configuring vcpkg MSBuild integration..." -ForegroundColor Cyan
+    if ($Integrate) {
+        & $vcpkgExe integrate install | Out-Host
+        $integrateExit = $LASTEXITCODE
+        if ($integrateExit -ne 0) {
+            $msg = "vcpkg integrate install failed with exit code $integrateExit"
+            $result.Errors += $msg
+            Write-Host "  ✗ $msg" -ForegroundColor Red
+            $result.Message = 'vcpkg MSBuild integration failed.'
+            return $result
+        }
+        Write-Host "  ✓ vcpkg MSBuild integration enabled" -ForegroundColor Green
+    } else {
+        Write-Host "  ⊘ Skipped (-Integrate not specified)" -ForegroundColor Yellow
+    }
+
+    # Step 4: LibreSSL version cross-check
+    Write-Host "`n[4/6] Verifying LibreSSL version cross-check..." -ForegroundColor Cyan
     if ($SkipVersionCheck) {
         Write-Host "  ⊘ Skipped (-SkipVersionCheck)" -ForegroundColor Yellow
         $result.VersionCheckPassed = $null
@@ -269,16 +320,16 @@ try {
         }
     }
 
-    # Step 4: Optional clean
-    Write-Host "`n[4/5] Preparing vcpkg_installed..." -ForegroundColor Cyan
+    # Step 5: Optional clean
+    Write-Host "`n[5/6] Preparing vcpkg_installed..." -ForegroundColor Cyan
     if ($Clean -and (Test-Path -LiteralPath $installedDir)) {
         Write-Host "  → Removing $installedDir" -ForegroundColor Yellow
         Remove-Item -LiteralPath $installedDir -Recurse -Force
     }
     Write-Host "  ✓ Ready" -ForegroundColor Green
 
-    # Step 5: Install per triplet
-    Write-Host "`n[5/5] Running vcpkg install..." -ForegroundColor Cyan
+    # Step 6: Install per triplet
+    Write-Host "`n[6/6] Running vcpkg install..." -ForegroundColor Cyan
     $previousBinarySources = $env:VCPKG_BINARY_SOURCES
     if (-not [string]::IsNullOrWhiteSpace($BinaryCache)) {
         if (-not (Test-Path -LiteralPath $BinaryCache)) {
@@ -291,13 +342,15 @@ try {
     try {
         foreach ($arch in $Architecture) {
             $triplet = "$($arch.ToLowerInvariant())-custom"
+            $tripletInstallRoot = Join-Path $installedDir $triplet
             Write-Host "`n  → Installing triplet: $triplet" -ForegroundColor Yellow
             Push-Location $opensshDir
             try {
                 & $vcpkgExe install `
                     --triplet $triplet `
+                    "--x-install-root=$tripletInstallRoot" `
                     --overlay-triplets=$overlayTripletsDir `
-                    --overlay-ports=$overlayPortsDir
+                    --overlay-ports=$overlayPortsDir | Out-Host
                 $exit = $LASTEXITCODE
             } finally {
                 Pop-Location
@@ -310,13 +363,15 @@ try {
                 continue
             }
 
-            # Verify expected artifact
-            $libcryptoPath = Join-Path $installedDir "$triplet\$triplet\bin\libcrypto.dll"
-            if (Test-Path -LiteralPath $libcryptoPath) {
-                Write-Host "  ✓ $triplet installed (libcrypto.dll present)" -ForegroundColor Green
+            if (-not (Test-Path -LiteralPath $dependencyTestPath -PathType Leaf)) {
+                throw "Dependency validation script not found at $dependencyTestPath"
+            }
+            $dependencyCheck = & $dependencyTestPath -Architecture $arch -RepositoryRoot $repoRoot
+            if ($dependencyCheck.Success) {
+                Write-Host "  ✓ $triplet installed (LibreSSL header, library, and DLL present)" -ForegroundColor Green
                 $result.TripletsInstalled += $triplet
             } else {
-                $msg = "vcpkg install for $triplet completed but libcrypto.dll not found at $libcryptoPath"
+                $msg = "vcpkg install for $triplet completed but required build artifacts did not validate.`n$($dependencyCheck.Diagnostic)"
                 $result.Errors += $msg
                 Write-Host "  ✗ $msg" -ForegroundColor Red
             }

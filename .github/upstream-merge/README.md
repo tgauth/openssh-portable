@@ -58,11 +58,21 @@ The preparation job:
 1. Fetches `origin` and `upstream`.
 2. Creates or reuses the long-lived **`vnext`** branch based on
    **`merge-v10.6P1`** in `tgauth/openssh-portable`.
-3. Uses [`Get-CommitGroups.ps1`](../tools/Get-CommitGroups.ps1) in its default
+3. Merges the current `origin/latestw_all` into `vnext` so an existing
+   integration branch receives newer Windows build and compatibility changes,
+   including toolchain updates, before upstream batches are selected.
+4. Uses [`Get-CommitGroups.ps1`](../tools/Get-CommitGroups.ps1) in its default
    CI-success mode, so every batch ends at an upstream commit whose CI passed.
-4. Merges up to `max_batches` batches.
-5. Builds batches that change `*.c` or `*.h`.
-6. Stops at the first conflict or build failure and writes
+   The workflow supplies its trusted GitHub token as `GITHUB_TOKEN`, and
+   `-FirstChunkOnly` scans incrementally until it finds that first endpoint
+   rather than requiring API budget for the entire outstanding range.
+5. Merges up to `max_batches` batches.
+6. Enables the same vcpkg MSBuild integration used by the Azure DevOps build,
+   installs the manifest-pinned dependencies using the GitHub-hosted runner's
+   vcpkg clone, verifies the LibreSSL header, import library, and DLL after
+   installation and immediately around MSBuild, then builds the base sync and
+   batches that change `*.c` or `*.h`.
+7. Stops at the first conflict or build failure and writes
    `remediation-request.json`.
 
 Batch selection runs in-process to preserve the returned PowerShell objects.
@@ -74,6 +84,11 @@ isolated batch-selection regression checks (no merges, builds, or API calls).
 
 If no remediation is needed, preparation runs the full CI suite, pushes
 `vnext`, uploads the report, and opens or updates the human-review PR.
+Every attempted build is checked with `Test-OpenSSHBuild.ps1`; parsed errors
+are included in the report or remediation request, and the diagnostic MSBuild
+log is uploaded as a separate workflow artifact. Dependency validation reports
+candidate paths when vcpkg produces an unexpected directory layout and
+distinguishes install-time failures from files that disappear during MSBuild.
 
 If remediation is required, preparation pushes the exact `vnext` head first.
 The request records immutable values including `expectedHead`, `batchEnd`,
@@ -114,9 +129,14 @@ The continuation job always treats the bundle as untrusted. It:
 4. In build mode, applies the patch with index and whitespace validation.
 5. Rejects absolute paths, traversal, duplicate paths, unexpected files,
    missing files, unresolved conflicts, and empty patches.
-6. Runs the authoritative Windows Release build.
+6. Enables vcpkg MSBuild integration, installs and validates the manifest-pinned
+   dependencies, checks them again immediately before and after the
+   authoritative Windows Release build, and parses and uploads its diagnostic
+   log.
 7. Pushes only after validation succeeds.
-8. Runs the full CI suite and updates the review PR.
+8. Defers full CI and updates the review PR. A later dispatch resumes from the
+   repaired `vnext` head and runs full CI once its deterministic batch loop
+   completes without another remediation handoff.
 
 The workflow permits one agentic remediation boundary per run. After a
 successful remediation, any additional upstream batches are picked up by the
@@ -136,11 +156,19 @@ to `PowerShell/openssh-portable`.
 
 | Secret | Used for | Agent access |
 |---|---|---|
-| `UPSTREAM_MERGE_TOKEN` | Trusted Windows jobs use it to push `vnext` and create/update the PR. A PAT or GitHub App token allows the push to trigger downstream workflows. | **None** |
+| `UPSTREAM_MERGE_TOKEN` | Trusted Windows jobs use it to push `vnext` and create/update the PR. For fork testing, use a `tgauth` user token that can update workflow files. | **None** |
 
 If `UPSTREAM_MERGE_TOKEN` is absent, the jobs fall back to `github.token`.
 The generated workflow manifest records this restricted secret and the pinned
 action/container dependencies reviewed by `gh aw compile --approve`.
+
+For fork testing, configure `UPSTREAM_MERGE_TOKEN` with permission to write
+repository contents and workflow files and to create pull requests. Upstream
+batches can modify `.github/workflows/**`; GitHub rejects those pushes when
+they use the built-in GitHub App token, even when the job has
+`contents: write`. A classic PAT needs `repo` and `workflow`; use the
+equivalent repository Contents and Pull requests permissions for a fine-grained
+token if its workflow-file policy permits the update.
 
 ## Scheduling caveat
 
