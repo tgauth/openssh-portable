@@ -283,18 +283,21 @@ for ($i = 1; $i -le $MaxBatchesPerRun; $i++) {
     try {
         # Group by CI success: each batch ends at an upstream commit whose CI
         # fully passed (safe stopping point).
-        $chunk = & pwsh -NoProfile -File $getGroups `
-            -StartCommit $startSha -EndCommit $endSha -FirstChunkOnly |
-            Select-Object -Last 1
+        $LASTEXITCODE = 0
+        $chunks = @(& $getGroups -StartCommit $startSha -EndCommit $endSha -FirstChunkOnly)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Get-CommitGroups exited with code $LASTEXITCODE."
+        }
+        if ($chunks.Count -ne 1 -or
+            -not $chunks[0].PSObject.Properties['EndCommitFull'] -or
+            [string]::IsNullOrWhiteSpace($chunks[0].EndCommitFull)) {
+            throw "No valid CI-success batch was returned for $startSha..$endSha; the upstream endpoint has not been reached."
+        }
+        $chunk = $chunks[0]
     } catch {
         Write-Log "Get-CommitGroups failed: $_" 'ERROR'
         $script:NeedsHuman = $true
         Add-Report "> Could not determine the next batch (Get-CommitGroups failed): $_"
-        break
-    }
-
-    if (-not $chunk -or -not $chunk.EndCommitFull) {
-        Write-Log "No further batch returned; treating as caught up."
         break
     }
 

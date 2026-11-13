@@ -10,6 +10,9 @@ The current deployment is deliberately limited to
 [PowerShell/openssh-portable#883](https://github.com/PowerShell/openssh-portable/pull/883).
 The workflow opens its review PR inside the fork, from `vnext` back to
 `merge-v10.6P1`; it does not update the open PowerShell repository PR.
+Both publishing jobs pass `--repo $env:GITHUB_REPOSITORY` to every `gh pr`
+command because adding the upstream remote makes CLI repository inference
+select the upstream repository instead of the fork.
 
 | File | Purpose |
 |---|---|
@@ -61,6 +64,13 @@ The preparation job:
 5. Builds batches that change `*.c` or `*.h`.
 6. Stops at the first conflict or build failure and writes
    `remediation-request.json`.
+
+Batch selection runs in-process to preserve the returned PowerShell objects.
+An empty, malformed, or failed selection is a human-attention handoff while
+upstream commits remain, never evidence that `vnext` is caught up. Only reaching
+the selected upstream endpoint establishes that the merge is up to date.
+Run `.\.github\upstream-merge\tests\Test-WeeklyUpstreamMerge.ps1` for the
+isolated batch-selection regression checks (no merges, builds, or API calls).
 
 If no remediation is needed, preparation runs the full CI suite, pushes
 `vnext`, uploads the report, and opens or updates the human-review PR.

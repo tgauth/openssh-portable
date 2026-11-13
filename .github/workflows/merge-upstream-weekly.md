@@ -174,11 +174,12 @@ jobs:
           $body = (Test-Path $env:REPORT_PATH) ? (Get-Content -Raw $env:REPORT_PATH) : 'No report produced.'
           $flag = ($env:NEEDS_HUMAN -eq 'true') ? 'ATTENTION NEEDED' : 'ready for review'
           $title = "Weekly upstream merge into $env:VNEXT_BRANCH (CI: $env:CI_STATUS) - $flag"
-          $existing = gh pr list --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --state open --json number --jq '.[0].number'
+          $existing = gh pr list --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --state open --json number --jq '.[0].number'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not query the review pull request.' }
           if ([string]::IsNullOrWhiteSpace($existing)) {
-            $body | gh pr create --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --title $title --body-file -
+            $body | gh pr create --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --title $title --body-file -
           } else {
-            $body | gh pr edit $existing --title $title --body-file -
+            $body | gh pr edit $existing --repo $env:GITHUB_REPOSITORY --title $title --body-file -
           }
 
       - name: Reflect deterministic status
@@ -284,11 +285,12 @@ jobs:
           $body = (Test-Path $env:REPORT_PATH) ? (Get-Content -Raw $env:REPORT_PATH) : 'No report produced.'
           $flag = ($env:NEEDS_HUMAN -eq 'true') ? 'ATTENTION NEEDED' : 'ready for review'
           $title = "Weekly upstream merge into $env:VNEXT_BRANCH (CI: $env:CI_STATUS) - $flag"
-          $existing = gh pr list --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --state open --json number --jq '.[0].number'
+          $existing = gh pr list --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --state open --json number --jq '.[0].number'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not query the review pull request.' }
           if ([string]::IsNullOrWhiteSpace($existing)) {
-            $body | gh pr create --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --title $title --body-file -
+            $body | gh pr create --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --title $title --body-file -
           } else {
-            $body | gh pr edit $existing --title $title --body-file -
+            $body | gh pr edit $existing --repo $env:GITHUB_REPOSITORY --title $title --body-file -
           }
 
       - name: Reflect remediation status
