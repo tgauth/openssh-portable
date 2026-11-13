@@ -64,7 +64,6 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: write
-      pull-requests: write
     outputs:
       batches_merged: ${{ steps.merge.outputs.batches_merged }}
       remediation_required: ${{ steps.merge.outputs.remediation_required }}
@@ -172,28 +171,6 @@ jobs:
           path: ${{ runner.temp }}/merge-report.md
           if-no-files-found: warn
 
-      - name: Open or update review pull request
-        if: steps.merge.outputs.remediation_required != 'true' && steps.merge.outputs.batches_merged != '' && steps.merge.outputs.batches_merged != '0'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
-          VNEXT_BRANCH: ${{ steps.merge.outputs.vnext_branch }}
-          TARGET_BRANCH: ${{ steps.merge.outputs.target_branch }}
-          NEEDS_HUMAN: ${{ steps.merge.outputs.needs_human }}
-          CI_STATUS: ${{ steps.merge.outputs.ci_status }}
-          REPORT_PATH: ${{ runner.temp }}/merge-report.md
-        run: |
-          $body = (Test-Path $env:REPORT_PATH) ? (Get-Content -Raw $env:REPORT_PATH) : 'No report produced.'
-          $flag = ($env:NEEDS_HUMAN -eq 'true') ? 'ATTENTION NEEDED' : 'ready for review'
-          $title = "Weekly upstream merge into $env:VNEXT_BRANCH (CI: $env:CI_STATUS) - $flag"
-          $existing = gh pr list --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --state open --json number --jq '.[0].number'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not query the review pull request.' }
-          if ([string]::IsNullOrWhiteSpace($existing)) {
-            $body | gh pr create --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --title $title --body-file -
-          } else {
-            $body | gh pr edit $existing --repo $env:GITHUB_REPOSITORY --title $title --body-file -
-          }
-
       - name: Reflect deterministic status
         if: always() && steps.merge.outputs.remediation_required != 'true'
         shell: pwsh
@@ -218,7 +195,6 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: write
-      pull-requests: write
     env:
       VNEXT_BRANCH: vnext
       TARGET_BRANCH: merge-v10.6P1
@@ -285,37 +261,6 @@ jobs:
           path: ${{ github.workspace }}/contrib/win32/openssh/OpenSSHRelease*.log
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Open or update review pull request
-        if: always()
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
-          NEEDS_HUMAN: ${{ steps.apply.outputs.needs_human || 'true' }}
-          CI_STATUS: ${{ steps.apply.outputs.ci_status || 'not-run' }}
-          REPORT_PATH: ${{ runner.temp }}/merge-input/merge-report.md
-        run: |
-          git fetch origin --prune
-          git rev-parse --verify --quiet "origin/$env:VNEXT_BRANCH"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host '::warning::vnext was not pushed; the report artifact is the handoff.'
-            exit 0
-          }
-          $ahead = git rev-list --count "origin/$env:TARGET_BRANCH..origin/$env:VNEXT_BRANCH"
-          if ($LASTEXITCODE -ne 0 -or [int]$ahead -eq 0) {
-            Write-Host '::warning::vnext has no commits beyond the target branch; no pull request can be opened.'
-            exit 0
-          }
-          $body = (Test-Path $env:REPORT_PATH) ? (Get-Content -Raw $env:REPORT_PATH) : 'No report produced.'
-          $flag = ($env:NEEDS_HUMAN -eq 'true') ? 'ATTENTION NEEDED' : 'ready for review'
-          $title = "Weekly upstream merge into $env:VNEXT_BRANCH (CI: $env:CI_STATUS) - $flag"
-          $existing = gh pr list --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --state open --json number --jq '.[0].number'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not query the review pull request.' }
-          if ([string]::IsNullOrWhiteSpace($existing)) {
-            $body | gh pr create --repo $env:GITHUB_REPOSITORY --head $env:VNEXT_BRANCH --base $env:TARGET_BRANCH --title $title --body-file -
-          } else {
-            $body | gh pr edit $existing --repo $env:GITHUB_REPOSITORY --title $title --body-file -
-          }
 
       - name: Reflect remediation status
         if: always()

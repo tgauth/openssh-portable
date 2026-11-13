@@ -25,14 +25,13 @@
          ...until upstream is fully merged or -MaxBatchesPerRun is reached, or a
          step needs human help (conflicts/build still broken after the cap).
       4. If anything was merged and builds are green, run the FULL CI suite once.
-      5. Push `vnext` and write a Markdown report (used as the PR body).
+      5. Push `vnext` and write a Markdown report for the workflow artifacts.
 
     The script NEVER merges `vnext` into the target branch and NEVER force-pushes
-    anything. Its output is always reviewed by a human via the pull request the
-    workflow opens/updates.
+    anything. It does not create or update pull requests.
 
-    Merging `vnext` -> target on an upstream release is intentionally a separate,
-    manual process.
+    Porting the validated tree to a clean working branch and opening a pull
+    request is intentionally a separate process.
 
 .NOTES
     The intelligent steps run in a separate, sandboxed GitHub Agentic Workflow
@@ -50,7 +49,7 @@ param(
     # Long-lived branch changes are accumulated on, week over week.
     [string]$VNextBranch = 'vnext',
 
-    # Branch vnext is created from on first run and that the review PR targets.
+    # Branch vnext is created from on first run.
     [string]$TargetBranch = 'merge-v10.6P1',
 
     # Fork branch whose latest Windows build and compatibility changes are
@@ -78,7 +77,7 @@ param(
     [Parameter(Mandatory)]
     [string]$ToolkitDir,
 
-    # Where to write the Markdown run report (becomes the PR body).
+    # Where to write the Markdown run report for the workflow artifacts.
     [string]$ReportPath = 'merge-report.md',
 
     # Machine-readable request consumed by the agent and continuation jobs.
@@ -364,8 +363,8 @@ Add-Report ""
 
 # Keep the long-lived integration branch current with Windows-fork changes
 # that landed after vnext was first created. This is intentionally separate
-# from TargetBranch during fork testing, where the review PR still targets the
-# in-progress release branch.
+# from TargetBranch during fork testing, which seeds vnext from the in-progress
+# release branch.
 $baseSyncRemote = "$OriginRemote/$BaseSyncBranch"
 & git rev-parse --verify --quiet $baseSyncRemote | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -594,7 +593,7 @@ if ($env:GITHUB_STEP_SUMMARY) {
 
 Write-Log "Done. batches_merged=$($script:BatchesMerged) remediation_required=$($script:RemediationRequired) needs_human=$($script:NeedsHuman) ci_status=$ciStatus"
 
-# Exit non-zero only to signal the run needs attention; the workflow still opens
-# the review PR. Push/loop already recorded everything in the report.
+# Exit non-zero only to signal the run needs attention.
+# Push/loop already recorded everything in the report artifact.
 if ($script:NeedsHuman) { exit 2 }
 exit 0

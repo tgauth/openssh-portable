@@ -8,25 +8,24 @@ The current deployment is deliberately limited to
 `tgauth/openssh-portable`. It creates or advances `vnext` from
 `merge-v10.6P1`, the fork branch behind
 [PowerShell/openssh-portable#883](https://github.com/PowerShell/openssh-portable/pull/883).
-The workflow opens its review PR inside the fork, from `vnext` back to
-`merge-v10.6P1`; it does not update the open PowerShell repository PR.
-Both publishing jobs pass `--repo $env:GITHUB_REPOSITORY` to every `gh pr`
-command because adding the upstream remote makes CLI repository inference
-select the upstream repository instead of the fork.
+This workflow only updates `vnext` and publishes diagnostic artifacts; it does
+not look up, create, or update pull requests. Porting the validated tree to a
+clean working branch without the agent's incremental commit history and
+opening a PR belong to a separate workflow/task.
 
 | File | Purpose |
 |---|---|
 | [`../workflows/merge-upstream-weekly.md`](../workflows/merge-upstream-weekly.md) | Editable Agentic Workflow source: schedule, job graph, tools, security boundary, and remediation prompt. |
 | [`../workflows/merge-upstream-weekly.lock.yml`](../workflows/merge-upstream-weekly.lock.yml) | Generated GitHub Actions workflow. Regenerate with `gh aw compile merge-upstream-weekly --strict`. |
 | [`Invoke-WeeklyUpstreamMerge.ps1`](./Invoke-WeeklyUpstreamMerge.ps1) | Deterministically merges clean batches, builds them, and creates a remediation request at the first conflict or build failure. |
-| [`Apply-AgentRemediation.ps1`](./Apply-AgentRemediation.ps1) | Validates the agent bundle, recreates the exact state, applies it, builds on Windows, runs full CI, and pushes `vnext`. |
+| [`Apply-AgentRemediation.ps1`](./Apply-AgentRemediation.ps1) | Validates the agent bundle, recreates the exact state, applies it, builds on Windows, and pushes `vnext`; full CI is deferred. |
 
 ## Job flow
 
 ```text
 Windows prepare
     |
-    +-- no remediation --> push vnext, run full CI, update PR
+    +-- no remediation --> optional full CI, push vnext, upload report
     |
     `-- remediation request
             |
@@ -42,7 +41,7 @@ Windows prepare
             |
             v
        Windows continuation
-       verify -> apply -> build -> full CI -> push/update PR
+       verify -> apply -> build -> push vnext -> upload report
 ```
 
 The workflow never waits for another workflow run or polls an external agent.
@@ -82,8 +81,10 @@ the selected upstream endpoint establishes that the merge is up to date.
 Run `.\.github\upstream-merge\tests\Test-WeeklyUpstreamMerge.ps1` for the
 isolated batch-selection regression checks (no merges, builds, or API calls).
 
-If no remediation is needed, preparation runs the full CI suite, pushes
-`vnext`, uploads the report, and opens or updates the human-review PR.
+If no remediation is needed and changes were integrated, preparation runs the
+full CI suite once after the batch loop unless `skip_final_ci` is enabled,
+then pushes `vnext` and uploads the report. CI does not run after each batch;
+`max_batches` controls how many batches can accumulate before that final run.
 Every attempted build is checked with `Test-OpenSSHBuild.ps1`; parsed errors
 are included in the report or remediation request, and the diagnostic MSBuild
 log is uploaded as a separate workflow artifact. Dependency validation reports
@@ -134,7 +135,7 @@ The continuation job always treats the bundle as untrusted. It:
    authoritative Windows Release build, and parses and uploads its diagnostic
    log.
 7. Pushes only after validation succeeds.
-8. Defers full CI and updates the review PR. A later dispatch resumes from the
+8. Defers full CI and uploads the report. A later dispatch resumes from the
    repaired `vnext` head and runs full CI once its deterministic batch loop
    completes without another remediation handoff.
 
@@ -151,23 +152,24 @@ inference. It no longer installs Copilot CLI manually and no longer uses
 
 The preparation job is guarded by
 `github.repository == 'tgauth/openssh-portable'`. This prevents the testing
-configuration from pushing branches or opening PRs if the workflow is copied
+configuration from pushing branches if the workflow is copied
 to `PowerShell/openssh-portable`.
 
 | Secret | Used for | Agent access |
 |---|---|---|
-| `UPSTREAM_MERGE_TOKEN` | Trusted Windows jobs use it to push `vnext` and create/update the PR. For fork testing, use a `tgauth` user token that can update workflow files. | **None** |
+| `UPSTREAM_MERGE_TOKEN` | Trusted Windows jobs use it to push `vnext`. For fork testing, use a `tgauth` user token that can update workflow files. | **None** |
 
 If `UPSTREAM_MERGE_TOKEN` is absent, the jobs fall back to `github.token`.
 The generated workflow manifest records this restricted secret and the pinned
 action/container dependencies reviewed by `gh aw compile --approve`.
 
 For fork testing, configure `UPSTREAM_MERGE_TOKEN` with permission to write
-repository contents and workflow files and to create pull requests. Upstream
+repository contents and workflow files. No Pull requests write permission is
+required by this workflow. Upstream
 batches can modify `.github/workflows/**`; GitHub rejects those pushes when
 they use the built-in GitHub App token, even when the job has
 `contents: write`. A classic PAT needs `repo` and `workflow`; use the
-equivalent repository Contents and Pull requests permissions for a fine-grained
+equivalent repository Contents and Workflows permissions for a fine-grained
 token if its workflow-file policy permits the update.
 
 ## Scheduling caveat
@@ -185,7 +187,8 @@ GitHub only fires `schedule:` from the repository default branch
   remediation prompt; default 3.
 - `skip_agent` — never enter remediation; conflicts or build failures become
   immediate human handoffs.
-- `skip_final_ci` — skip the final full CI suite.
+- `skip_final_ci` — skip the once-per-run full CI suite after deterministic
+  batches (default false). Remediation runs continue to defer full CI.
 
 ## Updating the workflow
 
